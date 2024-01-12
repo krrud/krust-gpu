@@ -242,7 +242,7 @@ impl State {
 
         let sphere1 = Sphere::new([0.0, 3.0, 0.0], 1.0);
         let ground = Sphere::new([0.0, -100.0, 0.0], 100.0);
-        let scene = Scene::from(vec![sphere1, ground]);
+        let scene = Scene::from(vec![ground, sphere1]);
         let scene_buffer = scene.to_buffer(&device);
 
         let camera = Camera {
