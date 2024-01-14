@@ -11,7 +11,7 @@ fn main(@builtin(global_invocation_id) global_ix: vec3<u32>) {
 
     // Generate ray
     let uv = vec2<f32>(coord) / pixelDim;
-    let ray = generateRay(uv);
+    let ray = create_primary_ray(uv);
 
     // Write to buffer
     let index = ix.y * rays.size.x + ix.x;
@@ -19,17 +19,15 @@ fn main(@builtin(global_invocation_id) global_ix: vec3<u32>) {
 }
 
 
-fn generateRay(uv: vec2<f32>) -> Ray {
+fn create_primary_ray(uv: vec2<f32>) -> Ray {
     let forward = normalize(camera.focus.xyz - camera.origin.xyz);
-    let right = normalize(cross(camera.up.xyz, forward));
+    let right = normalize(cross(vec3<f32>(0.0, 1.0, 0.0), forward));
     let up = cross(forward, right);
-
-    let fovy = radians(camera.fovy);
-    let aspect = camera.aspect;
+    let fov = radians(camera.fovy);
 
     let csc = vec2<f32>(
-        (uv.x * 2.0 - 1.0) * aspect * tan(fovy / 2.0),
-        (1.0 - uv.y * 2.0) * tan(fovy / 2.0)
+        (uv.x * 2.0 - 1.0) * camera.aspect * tan(fov / 2.0),
+        (1.0 - uv.y * 2.0) * tan(fov / 2.0)
     );
 
     let direction = normalize(csc.x * right + csc.y * up + forward);

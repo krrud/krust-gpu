@@ -1,3 +1,8 @@
+mod texture;
+mod primitives;
+
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
 use std::iter;
 use wgpu::{Buffer, Device, BufferUsages, Extent3d, SamplerBindingType};
 use wgpu::util::DeviceExt;
@@ -7,18 +12,14 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
 };
+
 use cgmath::InnerSpace;
-
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
-
-mod texture;
-mod primitives;
+use primitives::material::Material;
 use primitives::sphere::Sphere;
-use primitives::scene::Scene;
+use primitives::scene::{Scene, RenderConfig};
 use primitives::ray::{Ray, RayBuffer};
 use primitives::hit::HitRec;
-use primitives::camera::{Camera, CameraUniform};
+use primitives::camera::{Camera, CameraUniform, CameraController};
 
 
 #[rustfmt::skip]
@@ -31,127 +32,7 @@ pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
 
 pub const RENDER_SIZE: [u32; 2] = [1280, 720];
 
-// #[repr(C)]
-// #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-// struct CameraUniform {
-//     view_proj: [[f32; 4]; 4],
-//     origin: [f32; 3],
-//     _padding: [f32; 1],
-// }
-
-// impl CameraUniform {
-//     fn new() -> Self {
-//         use cgmath::SquareMatrix;
-//         Self {
-//             view_proj: cgmath::Matrix4::identity().into(),
-//             origin: [0.0; 3],
-//             _padding: [0.0; 1],
-//         }
-//     }
-
-//     fn update_view_proj(&mut self, camera: &Camera) {
-//         self.view_proj = (OPENGL_TO_WGPU_MATRIX * camera.build_view_projection_matrix()).into();
-//         self.origin = camera.origin.into();
-//     }
-// }
-
-struct CameraController {
-    speed: f32,
-    is_up_pressed: bool,
-    is_down_pressed: bool,
-    is_forward_pressed: bool,
-    is_backward_pressed: bool,
-    is_left_pressed: bool,
-    is_right_pressed: bool,
-}
-
-impl CameraController {
-    fn new(speed: f32) -> Self {
-        Self {
-            speed,
-            is_up_pressed: false,
-            is_down_pressed: false,
-            is_forward_pressed: false,
-            is_backward_pressed: false,
-            is_left_pressed: false,
-            is_right_pressed: false,
-        }
-    }
-
-    fn process_events(&mut self, event: &WindowEvent) -> bool {
-        match event {
-            WindowEvent::KeyboardInput {
-                input:
-                    KeyboardInput {
-                        state,
-                        virtual_keycode: Some(keycode),
-                        ..
-                    },
-                ..
-            } => {
-                let is_pressed = *state == ElementState::Pressed;
-                match keycode {
-                    VirtualKeyCode::Space => {
-                        self.is_up_pressed = is_pressed;
-                        true
-                    }
-                    VirtualKeyCode::LShift => {
-                        self.is_down_pressed = is_pressed;
-                        true
-                    }
-                    VirtualKeyCode::W | VirtualKeyCode::Up => {
-                        self.is_forward_pressed = is_pressed;
-                        true
-                    }
-                    VirtualKeyCode::A | VirtualKeyCode::Left => {
-                        self.is_left_pressed = is_pressed;
-                        true
-                    }
-                    VirtualKeyCode::S | VirtualKeyCode::Down => {
-                        self.is_backward_pressed = is_pressed;
-                        true
-                    }
-                    VirtualKeyCode::D | VirtualKeyCode::Right => {
-                        self.is_right_pressed = is_pressed;
-                        true
-                    }
-                    _ => false,
-                }
-            }
-            _ => false,
-        }
-    }
-
-    fn update_camera(&self, camera: &mut Camera) {
-        use cgmath::InnerSpace;
-        let forward = camera.focus - camera.origin;
-        let forward_norm = forward.normalize();
-        let forward_mag = forward.magnitude();
-
-        // Prevents glitching when camera gets too close to the
-        // center of the scene.
-        if self.is_forward_pressed && forward_mag > self.speed {
-            camera.origin += forward_norm * self.speed;
-        }
-        if self.is_backward_pressed {
-            camera.origin -= forward_norm * self.speed;
-        }
-
-        let right = forward_norm.cross(camera.up);
-
-        // Redo radius calc in case the up/ down is pressed.
-        let forward = camera.focus - camera.origin;
-        let forward_mag = forward.magnitude();
-
-        if self.is_right_pressed {
-            camera.origin = camera.focus - (forward + right * self.speed).normalize() * forward_mag;
-        }
-        if self.is_left_pressed {
-            camera.origin = camera.focus - (forward - right * self.speed).normalize() * forward_mag;
-        }
-    }
-}
-
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 struct State {
     surface: wgpu::Surface,
     device: wgpu::Device,
@@ -175,6 +56,8 @@ struct State {
     camera_ray_uniform: RayBuffer,
     camera_ray_buffer: wgpu::Buffer,
     scene: Scene,
+    scene_buffer: wgpu::Buffer,
+    render_config: RenderConfig,
 }
 
 impl State {
@@ -240,31 +123,83 @@ impl State {
 
         surface.configure(&device, &config);
 
-        let sphere1 = Sphere::new([0.0, 3.0, 0.0], 1.0);
-        let ground = Sphere::new([0.0, -100.0, 0.0], 100.0);
-        let scene = Scene::from(vec![ground, sphere1]);
-        let scene_buffer = scene.to_buffer(&device);
 
+        // SCENE SETUP
+        //
+        //
+        //
         let camera = Camera {
             origin: (0.0, 2.0, 3.0).into(),
             focus: (0.0, 0.0, 0.0).into(),
-            up: (0.0, 1.0, 0.0).into(),
+            aperture: 0.2,
             fovy: 80.0,
             aspect: (config.width as f32 / config.height as f32).into(),
-            znear: 0.1,
-            zfar: 100.0,
         };
         let camera_controller = CameraController::new(0.2);
-
-        // let mut camera_uniform = CameraUniform::new();
-        // camera_uniform.update_view_proj(&camera);
         let camera_uniform = CameraUniform::from(&camera);
+        let camera_buffer = camera_uniform.to_buffer(&device);
 
-        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Camera Buffer"),
-            contents: bytemuck::cast_slice(&[camera_uniform]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+
+        let mat_orange = Material::new(
+            [0.4, 0.1, 0.05, 1.0],
+            1.0,
+            0.2,
+            0.0,
+            0.0,
+            1.5,
+        );
+
+        let mat_gray = Material::new(
+            [0.1, 0.1, 0.1, 1.0],
+            0.0,
+            0.3,
+            0.0,
+            0.0,
+            1.5,
+        );
+
+        let mat_white = Material::new(
+            [12.6, 12.6, 12.6, 1.0],
+            1.0,
+            0.5,
+            0.0,
+            0.0,
+            1.3,
+        );
+
+        let mat_gold = Material::new(
+            [0.8, 0.6, 0.2, 1.0],
+            1.0,
+            0.2,
+            1.0,
+            0.0,
+            1.5,
+        );
+
+        let mat_chrome = Material::new(
+            [0.6, 0.6, 0.6, 1.0],
+            1.0,
+            0.0,
+            1.0,
+            0.0,
+            1.8,
+        );
+
+        let sphere1 = Sphere::new([0.0, 1.0, 0.0], 1.0, mat_orange);
+        let sphere2 = Sphere::new([2.0, 1.0, 0.0], 1.0, mat_chrome);
+        let sphere3 = Sphere::new([-2.0, 1.0, 0.0], 1.0, mat_white);
+        let sphere4 = Sphere::new([0.0, 1.0, 2.0], 1.0, mat_gray);
+        let sphere5 = Sphere::new([0.0, 1.0, -2.0], 1.0, mat_gold);
+        let ground = Sphere::new([0.0, -100.0, 0.0], 100.0, mat_gray);
+
+        let render_config = RenderConfig::new(
+            size.into(), // pixel size
+            16, // ray depth
+            16, // samples
+        );
+
+        let scene = Scene::from(render_config, camera_uniform, vec![ground, sphere1, sphere2, sphere3, sphere4, sphere5]);
+        let scene_buffer = scene.to_buffer(&device);
 
         let camera_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -298,6 +233,7 @@ impl State {
         //
         let shader_structs = include_str!("./shaders/structs.wgsl");
         let shader_functions = include_str!("./shaders/functions.wgsl");
+        let ggx = include_str!("./shaders/ggx.wgsl");
 
 
         // CAMERA RAY GENEREATION COMPUTE PIPELINE
@@ -305,7 +241,7 @@ impl State {
         //
         //
         let camera_ray_shader = include_str!("./shaders/compute_camera_rays.wgsl");
-        let combined_camera_ray_shader = format!("{}\n{}", shader_structs, camera_ray_shader);
+        let combined_camera_ray_shader = format!("{}\n{}\n{}", shader_structs, shader_functions, camera_ray_shader);
         let cs_camera_rays = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Camera Ray Shader"),
             source: wgpu::ShaderSource::Wgsl(combined_camera_ray_shader.into()),
@@ -374,7 +310,7 @@ impl State {
         //
         //
         let traversal_shader = include_str!("./shaders/compute_traversal.wgsl");
-        let combined_traversal_shader = format!("{}\n{}\n{}", shader_structs, shader_functions, traversal_shader);
+        let combined_traversal_shader = format!("{}\n{}\n{}\n{}", shader_structs, shader_functions, ggx, traversal_shader);
         let cs_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Traversal Shader"),
             source: wgpu::ShaderSource::Wgsl(combined_traversal_shader.into()),
@@ -566,12 +502,8 @@ impl State {
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode: Some(wgpu::Face::Back),
-                // Setting this to anything other than Fill requires Features::POLYGON_MODE_LINE
-                // or Features::POLYGON_MODE_POINT
                 polygon_mode: wgpu::PolygonMode::Fill,
-                // Requires Features::DEPTH_CLIP_CONTROL
                 unclipped_depth: false,
-                // Requires Features::CONSERVATIVE_RASTERIZATION
                 conservative: false,
             },
             depth_stencil: None,
@@ -606,11 +538,18 @@ impl State {
             camera_ray_uniform,
             camera_ray_buffer,
             scene,
+            scene_buffer,
+            render_config,
         }
     }
 
     pub fn window(&self) -> &Window {
         &self.window
+    }
+
+    pub fn update_camera_aperture(&mut self, new_aperture: f32) {
+        self.camera.aperture = new_aperture;
+        log::warn!("Aperture Updated to: {}.", new_aperture);
     }
 
     fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -620,15 +559,13 @@ impl State {
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
 
+            // Update buffers
             self.camera.aspect = new_size.width as f32 / new_size.height as f32;            
             self.camera_ray_uniform = RayBuffer::new([new_size.width, new_size.height]);
             self.camera_ray_uniform.update_buffer(&self.camera_ray_buffer, &self.queue);
             self.camera_uniform = CameraUniform::from(&self.camera);
-            self.queue.write_buffer(
-                &self.camera_buffer,
-                0,
-                bytemuck::cast_slice(&[self.camera_uniform]),
-            );
+            self.camera_uniform.update_buffer(&self.camera_buffer, &self.queue); 
+            self.scene.update_buffer(&self.scene_buffer, &self.queue);
         }
     }
 
@@ -638,12 +575,9 @@ impl State {
 
     fn update(&mut self) {
         self.camera_controller.update_camera(&mut self.camera);
-        self.camera_uniform = CameraUniform::from(&self.camera);
-        self.queue.write_buffer(
-            &self.camera_buffer,
-            0,
-            bytemuck::cast_slice(&[self.camera_uniform]),
-        );
+        self.camera_uniform = CameraUniform::from(&self.camera);    
+        self.scene.update_buffer(&self.scene_buffer, &self.queue);
+        self.camera_uniform.update_buffer(&self.camera_buffer, &self.queue);
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -670,10 +604,10 @@ impl State {
         
         {
             // Trace indirect rays
-            let mut compute_pass = encoder.begin_compute_pass(&Default::default());
-            compute_pass.set_pipeline(&self.trace_pipeline);
-            compute_pass.set_bind_group(0, &self.trace_bind_group, &[]);
-            compute_pass.dispatch_workgroups(self.size.width / 16, self.size.height / 16, 1);
+            let mut trace_compute_pass = encoder.begin_compute_pass(&Default::default());
+            trace_compute_pass.set_pipeline(&self.trace_pipeline);
+            trace_compute_pass.set_bind_group(0, &self.trace_bind_group, &[]);
+            trace_compute_pass.dispatch_workgroups(self.size.width / 16, self.size.height / 16, 1);
         }
 
         {
@@ -703,7 +637,6 @@ impl State {
 
         Ok(())
     }
-
 }
 
 
@@ -720,6 +653,7 @@ pub async fn run() {
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
+        .with_title("Krust GPU")
         .with_inner_size(winit::dpi::LogicalSize::new(RENDER_SIZE[0], RENDER_SIZE[1]))
         .build(&event_loop)
         .unwrap();
@@ -739,14 +673,6 @@ pub async fn run() {
     }
 
     let mut state = State::new(window).await;
-
-    // Set window to browser size
-    #[cfg(target_arch = "wasm32")]
-    if let Some(window) = web_sys::window() {
-        let width = window.inner_width().unwrap().as_f64().unwrap() as u32;
-        let height = window.inner_height().unwrap().as_f64().unwrap() as u32;
-        state.window().set_inner_size(winit::dpi::LogicalSize::new(width, height));
-    }
 
     event_loop.run(move |event, _, control_flow| {
         match event {
@@ -782,25 +708,25 @@ pub async fn run() {
                 state.update();
                 match state.render() {
                     Ok(_) => {}
-                    // Reconfigure the surface if it's lost or outdated
                     Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                         state.resize(state.size)
                     }
-                    // The system is out of memory, we should probably quit
                     Err(wgpu::SurfaceError::OutOfMemory) => {
-                        // *control_flow = ControlFlow::Exit
+                        *control_flow = ControlFlow::Exit
                     }
-                
-                    // We're ignoring timeouts
                     Err(wgpu::SurfaceError::Timeout) => log::warn!("Surface timeout"),
                 }
             }
             Event::MainEventsCleared => {
-                // RedrawRequested will only trigger once, unless we manually
-                // request it.
                 state.window().request_redraw();
             }
             _ => {}
         }
     });
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+pub fn confirm() {
+    println!("Render started!");
+    log::warn!("Render started!");
 }

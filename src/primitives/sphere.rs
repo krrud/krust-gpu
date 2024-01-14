@@ -1,26 +1,16 @@
-// use crate::primitives::hit::HitRec;
-// use crate::primitives::ray::Ray;
-
+use crate::primitives::material::Material;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Sphere {
     center: [f32; 3],
     radius: f32,
+    material: Material,
+    _padding: [f32; 3],
 }
 
 impl Sphere {
-    pub fn new(center: [f32; 3], radius: f32) -> Self {
-        Sphere { center, radius }
+    pub fn new(center: [f32; 3], radius: f32, material: Material) -> Self {
+        Sphere { center, radius, material, _padding: [0.0; 3] }
     }
-
-    // Assuming Ray and HitRec are defined elsewhere and imported correctly
-    // pub fn hit(&self, ray: &Ray) -> Option<HitRec> {
-    //     Some(HitRec::new(
-    //             Point3::new(0.0, 0.0, 0.0),
-    //             Vector3::new(0.0, 0.0, 0.0),
-    //             0.0,
-    //             false,
-    //     ))
-    // }
 }
