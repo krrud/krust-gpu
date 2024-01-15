@@ -1,10 +1,3 @@
-// Vertex shader
-struct CameraUniform {
-    view_proj: mat4x4<f32>,
-};
-@group(1) @binding(0)
-var<uniform> camera: CameraUniform;
-
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) tex_coords: vec2<f32>,
@@ -41,15 +34,21 @@ fn vs_main(
 @group(0) @binding(0) var t_diffuse: texture_2d<f32>;
 @group(0) @binding(1) var s_trace: sampler;
 @group(0) @binding(2) var t_trace: texture_2d<f32>;
+@group(0) @binding(3) var<storage, read_write> accumulation_buffer: PixelBuffer;
+@group(0) @binding(4) var<storage, read> scene: Scene;
 
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    var trace_color: vec4<f32> = textureSample(t_trace, s_trace, in.tex_coords);
-    var composite: vec4<f32> = trace_color;
+    let index: u32 = u32(in.clip_position.y) * scene.config.size.x + u32(in.clip_position.x);
+    let trace_color: vec4<f32> = textureSample(t_trace, s_trace, in.tex_coords);
+    let accumulated_color: vec4<f32> = trace_color + accumulation_buffer.data[index];
+    var composite: vec4<f32> = accumulated_color / f32(scene.config.count);
+
+    accumulation_buffer.data[index] = accumulated_color;
 
     // Gamma correction
-    var gamma: f32 = 1.0; 
+    var gamma: f32 = 2.2; 
     composite.r = pow(composite.r, 1.0 / gamma);
     composite.g = pow(composite.g, 1.0 / gamma);
     composite.b = pow(composite.b, 1.0 / gamma);

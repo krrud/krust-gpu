@@ -139,7 +139,7 @@ impl CameraController {
         }
     }
 
-    pub fn update_camera(&self, camera: &mut Camera) {
+    pub fn update_camera(&self, camera: &mut Camera, clear_buffer: &mut bool) {
         use cgmath::InnerSpace;
         let forward = camera.focus - camera.origin;
         let forward_norm = forward.normalize();
@@ -163,6 +163,9 @@ impl CameraController {
         }
         if self.is_left_pressed {
             camera.origin = camera.focus - (forward - right * self.speed).normalize() * forward_mag;
+        }
+        if self.is_up_pressed || self.is_down_pressed || self.is_left_pressed || self.is_right_pressed || self.is_forward_pressed || self.is_backward_pressed {
+            *clear_buffer = true;
         }
     }
 }

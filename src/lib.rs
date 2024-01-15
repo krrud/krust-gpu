@@ -16,7 +16,9 @@ use winit::{
 use cgmath::InnerSpace;
 use primitives::material::Material;
 use primitives::sphere::Sphere;
-use primitives::scene::{Scene, RenderConfig};
+use primitives::triangle::Triangle;
+use primitives::pixel_buffer::PixelBuffer;
+use primitives::scene::{Scene, RenderConfig, SceneObject};
 use primitives::ray::{Ray, RayBuffer};
 use primitives::hit::HitRec;
 use primitives::camera::{Camera, CameraUniform, CameraController};
@@ -55,9 +57,12 @@ struct State {
     camera_ray_compute_pipeline: wgpu::ComputePipeline,
     camera_ray_uniform: RayBuffer,
     camera_ray_buffer: wgpu::Buffer,
+    accumulation_array: PixelBuffer,
+    accumulation_buffer: wgpu::Buffer,
     scene: Scene,
     scene_buffer: wgpu::Buffer,
     render_config: RenderConfig,
+    clear_buffer: bool,
 }
 
 impl State {
@@ -129,10 +134,10 @@ impl State {
         //
         //
         let camera = Camera {
-            origin: (0.0, 2.0, 3.0).into(),
+            origin: (0.0, 4.0, 6.0).into(),
             focus: (0.0, 0.0, 0.0).into(),
-            aperture: 0.2,
-            fovy: 80.0,
+            aperture: 0.15,
+            fovy: 50.0,
             aspect: (config.width as f32 / config.height as f32).into(),
         };
         let camera_controller = CameraController::new(0.2);
@@ -143,62 +148,111 @@ impl State {
         let mat_orange = Material::new(
             [0.4, 0.1, 0.05, 1.0],
             1.0,
-            0.2,
+            0.3,
+            0.0,
+            0.0,
+            1.1,
+        );
+
+        let mat_gray = Material::new(
+            [0.2, 0.2, 0.2, 1.0],
+            1.0,
+            0.65,
             0.0,
             0.0,
             1.5,
         );
 
-        let mat_gray = Material::new(
-            [0.1, 0.1, 0.1, 1.0],
-            0.0,
-            0.3,
+        let mat_black = Material::new(
+            [0.0, 0.0, 0.0, 1.0],
+            1.0,
+            0.2,
             0.0,
             0.0,
             1.5,
         );
 
         let mat_white = Material::new(
-            [12.6, 12.6, 12.6, 1.0],
+            [0.6, 0.6, 0.6, 1.0],
             1.0,
             0.5,
             0.0,
             0.0,
-            1.3,
+            1.8,
         );
 
         let mat_gold = Material::new(
-            [0.8, 0.6, 0.2, 1.0],
+            [0.9, 0.4, 0.1, 1.0],
             1.0,
-            0.2,
+            0.125,
             1.0,
             0.0,
             1.5,
         );
 
         let mat_chrome = Material::new(
-            [0.6, 0.6, 0.6, 1.0],
+            [1.0, 1.0, 1.0, 1.0],
             1.0,
-            0.0,
+            0.4,
             1.0,
             0.0,
             1.8,
         );
 
+        let mat_emissive = Material::new(
+            [55.0, 22.0, 10.0, 1.0],
+            0.2,
+            0.8,
+            0.0,
+            1.0,
+            1.4,
+        );
+
+
+        let tri1 = Triangle::new(
+            [-2.0, 0.0, 0.0], 
+            [2.0, 0.0, 0.0], 
+            [0.0, 2.0 * (3.0_f32).sqrt(), 0.0],
+            mat_gold,
+        );
+        let scene_triangles = vec![tri1];
+        let triangle_bytes = bytemuck::cast_slice(&scene_triangles);
+        let triangle_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Triangle Buffer"),
+            contents: &triangle_bytes,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
+
+
         let sphere1 = Sphere::new([0.0, 1.0, 0.0], 1.0, mat_orange);
         let sphere2 = Sphere::new([2.0, 1.0, 0.0], 1.0, mat_chrome);
         let sphere3 = Sphere::new([-2.0, 1.0, 0.0], 1.0, mat_white);
-        let sphere4 = Sphere::new([0.0, 1.0, 2.0], 1.0, mat_gray);
-        let sphere5 = Sphere::new([0.0, 1.0, -2.0], 1.0, mat_gold);
+        let sphere4 = Sphere::new([0.0, 1.0, 2.0], 1.0, mat_black);
+        let sphere5 = Sphere::new([0.0, 1.0, -2.0], 1.0, mat_orange);
+        let sphere6 = Sphere::new([0.0, 0.25, 0.0], 0.25, mat_gold);
         let ground = Sphere::new([0.0, -100.0, 0.0], 100.0, mat_gray);
+        let mut scene_spheres = vec![sphere2, sphere3, sphere4, sphere5, sphere6, ground];
+        let mut scene_objects = SceneObject::from_sphere_vec(&scene_spheres);
+
+        let new_sphere = Sphere::new([0.0, 2.5, 0.0], 0.5, mat_emissive);
+        scene_spheres.push(new_sphere);
+        SceneObject::add(&mut scene_objects, Some(&[new_sphere]), None);
+
+        let sphere_bytes = bytemuck::cast_slice(&scene_spheres);
+        let sphere_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Sphere Buffer"),
+            contents: &sphere_bytes,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
+        
 
         let render_config = RenderConfig::new(
             size.into(), // pixel size
             16, // ray depth
-            16, // samples
+            4, // samples
         );
 
-        let scene = Scene::from(render_config, camera_uniform, vec![ground, sphere1, sphere2, sphere3, sphere4, sphere5]);
+        let scene = Scene::from(render_config, camera_uniform, scene_objects);
         let scene_buffer = scene.to_buffer(&device);
 
         let camera_bind_group_layout =
@@ -234,6 +288,8 @@ impl State {
         let shader_structs = include_str!("./shaders/structs.wgsl");
         let shader_functions = include_str!("./shaders/functions.wgsl");
         let ggx = include_str!("./shaders/ggx.wgsl");
+        let accumulation_array = PixelBuffer::new([size.width, size.height]);
+        let accumulation_buffer = accumulation_array.to_buffer(&device);
 
 
         // CAMERA RAY GENEREATION COMPUTE PIPELINE
@@ -316,6 +372,11 @@ impl State {
             source: wgpu::ShaderSource::Wgsl(combined_traversal_shader.into()),
         });
 
+        let sky_bytes = include_bytes!("../assets/sky5.png");
+        
+        let sky_texture =
+            texture::Texture::from_bytes(&device, &queue, sky_bytes, "sky.png").unwrap();
+
         let trace_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size: Extent3d {
@@ -366,6 +427,42 @@ impl State {
                         },
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 5,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 6,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
         });
 
@@ -384,6 +481,22 @@ impl State {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: wgpu::BindingResource::TextureView(&trace_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&sky_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::Sampler(&sky_texture.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: sphere_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: triangle_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -404,16 +517,19 @@ impl State {
 
 
 
-        // Render Pipeline
+        // RENDER PIPELINE
         //
         //
         //
+        let render_shader = include_str!("./shaders/shader.wgsl");
+        let combined_render_shader = format!("{}\n{}\n{}", shader_structs, shader_functions, render_shader);
+
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("./shaders/shader.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(combined_render_shader.into()),
         });
 
-        let diffuse_bytes = include_bytes!("happy-tree.png");
+        let diffuse_bytes = include_bytes!("../assets/happy-tree.png");
         
         let diffuse_texture =
             texture::Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png").unwrap();
@@ -446,7 +562,27 @@ impl State {
                             sample_type: wgpu::TextureSampleType::Float { filterable: true },
                         },
                         count: None,
-                    }
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
                 label: Some("texture_bind_group_layout"),
             });
@@ -465,7 +601,15 @@ impl State {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: wgpu::BindingResource::TextureView(&trace_view),
-                }
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: accumulation_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: scene_buffer.as_entire_binding(),
+                },
             ],
             label: Some("Texture Bind Group"),
         });    
@@ -537,9 +681,12 @@ impl State {
             camera_ray_compute_pipeline,
             camera_ray_uniform,
             camera_ray_buffer,
+            accumulation_array,
+            accumulation_buffer,
             scene,
             scene_buffer,
             render_config,
+            clear_buffer: false,
         }
     }
 
@@ -560,12 +707,13 @@ impl State {
             self.surface.configure(&self.device, &self.config);
 
             // Update buffers
+            self.accumulation_array.update_buffer(&mut self.accumulation_buffer, &self.clear_buffer, &self.queue);
             self.camera.aspect = new_size.width as f32 / new_size.height as f32;            
             self.camera_ray_uniform = RayBuffer::new([new_size.width, new_size.height]);
             self.camera_ray_uniform.update_buffer(&self.camera_ray_buffer, &self.queue);
             self.camera_uniform = CameraUniform::from(&self.camera);
-            self.camera_uniform.update_buffer(&self.camera_buffer, &self.queue); 
-            self.scene.update_buffer(&self.scene_buffer, &self.queue);
+            self.camera_uniform.update_buffer(&self.camera_buffer, &self.queue);
+            self.scene.update_buffer(&self.scene_buffer, &mut self.clear_buffer, &self.queue);
         }
     }
 
@@ -574,9 +722,10 @@ impl State {
     }
 
     fn update(&mut self) {
-        self.camera_controller.update_camera(&mut self.camera);
+        self.camera_controller.update_camera(&mut self.camera, &mut self.clear_buffer);
+        self.accumulation_array.update_buffer(&mut self.accumulation_buffer, &self.clear_buffer, &self.queue);
         self.camera_uniform = CameraUniform::from(&self.camera);    
-        self.scene.update_buffer(&self.scene_buffer, &self.queue);
+        self.scene.update_buffer(&self.scene_buffer, &mut self.clear_buffer, &self.queue);
         self.camera_uniform.update_buffer(&self.camera_buffer, &self.queue);
     }
 
@@ -664,7 +813,7 @@ pub async fn run() {
         web_sys::window()
             .and_then(|win| win.document())
             .and_then(|doc| {
-                let dst = doc.get_element_by_id("wasm-example")?;
+                let dst = doc.get_element_by_id("krust-gpu")?;
                 let canvas = web_sys::Element::from(window.canvas());
                 dst.append_child(&canvas).ok()?;
                 Some(())

@@ -53,8 +53,8 @@ fn ggx_indirect(
     let d = ggx_distribution(n_dot_h, r);
     let f = schlick_fresnel(f0, l_dot_h);
     let g = schlick_masking(n_dot_l, n_dot_v, r);
-    let term = f * d * g / (4.0 * n_dot_l * n_dot_v + 0.01);
-    let prob = d * n_dot_h / (4.0 * l_dot_h + 0.01);
+    let term = f * d * g / (4.0 * n_dot_l * n_dot_v + EPSILON);
+    let prob = d * n_dot_h / (4.0 * l_dot_h + EPSILON);
     let weight = n_dot_l * term / prob;
     
     return GGX(h, vec4<f32>(weight, 1.0));
@@ -62,7 +62,12 @@ fn ggx_indirect(
 
 fn get_perpendicular(n: vec3<f32>) -> vec3<f32> {
     // Find a vector perpendicular to n
-    let b = vec3<f32>(0.0, 1.0, 0.0);
-    let t = cross(b, n);
+    var b = vec3<f32>(1.0, 0.0, 0.0);
+    var t = cross(b, n);
+    if (length(t) == 0.0) {
+        b = vec3<f32>(0.0, 1.0, 0.0);
+        t = cross(b, n);
+    }
+    
     return normalize(t);
 }
