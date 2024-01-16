@@ -26,11 +26,11 @@ impl Camera {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct CameraUniform {
-    origin: [f32; 4],
-    focus: [f32; 4],
-    aperture: f32,
-    fovy: f32,
-    aspect: f32,
+    pub origin: [f32; 4],
+    pub focus: [f32; 4],
+    pub aperture: f32,
+    pub fovy: f32,
+    pub aspect: f32,
     _padding: [f32; 1],
 }
 

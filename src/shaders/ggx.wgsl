@@ -38,27 +38,48 @@ fn ggx_indirect(
     f0: vec3<f32>,
     rng: vec2<f32>,
 ) -> GGX {
-    // Sample half vector
+    // Half vector and ggx sample
     let r = roughness * roughness + EPSILON;
     let h = ggx_sample(n, r, rng);
     let l = normalize(2.0 * dot(v, h) * h - v);
 
     // Compute terms
-    let n_dot_l = saturate(dot(n, l));
-    let n_dot_v = saturate(dot(n, v));
-    let n_dot_h = saturate(dot(n, h));
-    let l_dot_h = saturate(dot(l, h));
+    let ndl = saturate(dot(n, l));
+    let ndv = saturate(dot(n, v));
+    let ndh = saturate(dot(n, h));
+    let ldh = saturate(dot(l, h));
 
     // Compute weight
-    let d = ggx_distribution(n_dot_h, r);
-    let f = schlick_fresnel(f0, l_dot_h);
-    let g = schlick_masking(n_dot_l, n_dot_v, r);
-    let term = f * d * g / (4.0 * n_dot_l * n_dot_v + EPSILON);
-    let prob = d * n_dot_h / (4.0 * l_dot_h + EPSILON);
-    let weight = n_dot_l * term / prob;
+    let d = ggx_distribution(ndh, r);
+    let f = schlick_fresnel(f0, ldh);
+    let g = schlick_masking(ndl, ndv, r);
+    let term = f * d * g / (4.0 * ndl * ndv + EPSILON);
+    let prob = d * ndh / (4.0 * ldh + EPSILON);
+    let weight = ndl * term / prob;
     
     return GGX(h, vec4<f32>(weight, 1.0));
-}   
+}  
+
+fn ggx_direct(n : vec3<f32>, v : vec3<f32>, l: vec3<f32>, roughness : f32, f0: vec3<f32>) -> GGX
+{
+    // Half vector and dots
+    let r = roughness * roughness + EPSILON;
+    let h : vec3<f32> = normalize(v + l);
+    let ndl : f32 = saturate(dot(n, l));
+    let ndh : f32 = saturate(dot(n, h));
+    let ldh : f32 = saturate(dot(l, h));
+    let ndv : f32 = saturate(dot(n, v));
+
+    // Compute terms
+    let d : f32 = ggx_distribution(ndh, r);
+    let g : f32 = schlick_masking(ndl, ndv, r);
+    let f : vec3<f32> = schlick_fresnel(f0, ldh);
+
+    // Compute weight
+    let weight : vec3<f32> = d * g * f / (4.0 * ndv * ndl + EPSILON);
+
+    return GGX(h, vec4<f32>(weight, 1.0));
+}
 
 fn get_perpendicular(n: vec3<f32>) -> vec3<f32> {
     // Find a vector perpendicular to n

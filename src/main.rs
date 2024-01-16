@@ -1,5 +1,6 @@
 use krusty::{run};
 
 fn main() {
-    pollster::block_on(run());
+    println!("Hello, world!");
+    // pollster::block_on(create_and_run());
 }

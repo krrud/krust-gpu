@@ -18,12 +18,16 @@ struct SceneObject {
 };
 
 struct QuadLight {
-    center: vec3<f32>,
-    normal: vec3<f32>,
-    u: vec3<f32>,
-    v: vec3<f32>,
+    position: vec4<f32>,
+    normal: vec4<f32>,
+    u: vec4<f32>,
+    v: vec4<f32>,
     color: vec3<f32>,
     intensity: f32,
+};
+
+struct QuadLightBuffer {
+    data: array<QuadLight>,
 };
 
 struct Triangle {

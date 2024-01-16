@@ -6,3 +6,5 @@ pub mod camera;
 pub mod material;
 pub mod triangle;
 pub mod pixel_buffer;
+pub mod lights;
+pub mod texture;

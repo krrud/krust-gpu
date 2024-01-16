@@ -1,5 +1,3 @@
-mod primitives;
-
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 use std::iter;
@@ -13,61 +11,51 @@ use winit::{
 };
 
 use cgmath::{InnerSpace, Vector3, prelude::*};
-use primitives::texture::Texture;
-use primitives::material::Material;
-use primitives::sphere::Sphere;
-use primitives::triangle::Triangle;
-use primitives::lights::QuadLight;
-use primitives::pixel_buffer::PixelBuffer;
-use primitives::scene::{Scene, RenderConfig, SceneObject, SceneJS};
-use primitives::ray::{Ray, RayBuffer};
-use primitives::hit::HitRec;
-use primitives::camera::{Camera, CameraUniform, CameraController};
+use crate::primitives::texture::Texture;
+use crate::primitives::material::Material;
+use crate::primitives::sphere::Sphere;
+use crate::primitives::triangle::Triangle;
+use crate::primitives::lights::QuadLight;
+use crate::primitives::pixel_buffer::PixelBuffer;
+use crate::primitives::scene::{Scene, RenderConfig, SceneObject};
+use crate::primitives::ray::{Ray, RayBuffer};
+use crate::primitives::hit::HitRec;
+use crate::primitives::camera::{Camera, CameraUniform, CameraController};
 
-
-#[rustfmt::skip]
-pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
-    1.0, 0.0, 0.0, 0.0,
-    0.0, 1.0, 0.0, 0.0,
-    0.0, 0.0, 0.5, 0.5,
-    0.0, 0.0, 0.0, 1.0,
-);
-
-pub const RENDER_SIZE: [u32; 2] = [1280, 720];
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub struct State {
-    surface: wgpu::Surface,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    config: wgpu::SurfaceConfiguration,
-    size: winit::dpi::PhysicalSize<u32>,
-    render_pipeline: wgpu::RenderPipeline,
+    pub surface: wgpu::Surface,
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
+    pub config: wgpu::SurfaceConfiguration,
+    pub size: winit::dpi::PhysicalSize<u32>,
+    pub render_pipeline: wgpu::RenderPipeline,
     #[allow(dead_code)]
-    diffuse_texture: Texture,
-    texture_bind_group: wgpu::BindGroup,
-    camera: Camera,
-    camera_controller: CameraController,
-    camera_uniform: CameraUniform,
-    camera_buffer: wgpu::Buffer,
-    camera_bind_group: wgpu::BindGroup,
-    window: Window,
-    trace_pipeline: wgpu::ComputePipeline,
-    trace_bind_group: wgpu::BindGroup,
-    camera_ray_bind_group: wgpu::BindGroup,
-    camera_ray_compute_pipeline: wgpu::ComputePipeline,
-    camera_ray_uniform: RayBuffer,
-    camera_ray_buffer: wgpu::Buffer,
-    accumulation_array: PixelBuffer,
-    accumulation_buffer: wgpu::Buffer,
-    scene: Scene,
-    scene_buffer: wgpu::Buffer,
-    render_config: RenderConfig,
-    clear_buffer: bool,
+    pub diffuse_texture: Texture,
+    pub texture_bind_group: wgpu::BindGroup,
+    pub camera: Camera,
+    pub camera_controller: CameraController,
+    pub camera_uniform: CameraUniform,
+    pub camera_buffer: wgpu::Buffer,
+    pub  camera_bind_group: wgpu::BindGroup,
+    pub window: Window,
+    pub trace_pipeline: wgpu::ComputePipeline,
+    pub trace_bind_group: wgpu::BindGroup,
+    pub camera_ray_bind_group: wgpu::BindGroup,
+    pub camera_ray_compute_pipeline: wgpu::ComputePipeline,
+    pub camera_ray_uniform: RayBuffer,
+    pub camera_ray_buffer: wgpu::Buffer,
+    pub accumulation_array: PixelBuffer,
+    pub accumulation_buffer: wgpu::Buffer,
+    pub scene: Scene,
+    pub scene_buffer: wgpu::Buffer,
+    pub render_config: RenderConfig,
+    pub clear_buffer: bool,
 }
 
 impl State {
-    async fn new(window: Window) -> Self {
+    pub async fn new(window: Window) -> Self {
 
         let size = window.inner_size();
 
@@ -297,9 +285,9 @@ impl State {
         //
         //
         //
-        let shader_structs = include_str!("./shaders/structs.wgsl");
-        let shader_functions = include_str!("./shaders/functions.wgsl");
-        let ggx = include_str!("./shaders/ggx.wgsl");
+        let shader_structs = include_str!("../shaders/structs.wgsl");
+        let shader_functions = include_str!("../shaders/functions.wgsl");
+        let ggx = include_str!("../shaders/ggx.wgsl");
         let accumulation_array = PixelBuffer::new([size.width, size.height]);
         let accumulation_buffer = accumulation_array.to_buffer(&device);
 
@@ -308,7 +296,7 @@ impl State {
         //
         //
         //
-        let camera_ray_shader = include_str!("./shaders/compute_camera_rays.wgsl");
+        let camera_ray_shader = include_str!("../shaders/compute_camera_rays.wgsl");
         let combined_camera_ray_shader = format!("{}\n{}\n{}", shader_structs, shader_functions, camera_ray_shader);
         let cs_camera_rays = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Camera Ray Shader"),
@@ -377,17 +365,17 @@ impl State {
         //
         //
         //
-        let traversal_shader = include_str!("./shaders/compute_traversal.wgsl");
+        let traversal_shader = include_str!("../shaders/compute_traversal.wgsl");
         let combined_traversal_shader = format!("{}\n{}\n{}\n{}", shader_structs, shader_functions, ggx, traversal_shader);
         let cs_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Traversal Shader"),
             source: wgpu::ShaderSource::Wgsl(combined_traversal_shader.into()),
         });
 
-        let sky_bytes = include_bytes!("../assets/sky4.png");
+        let sky_bytes = include_bytes!("../../assets/sky4.png");
         
         let sky_texture =
-            Texture::from_bytes(&device, &queue, sky_bytes, "sky.png").unwrap();
+            texture::Texture::from_bytes(&device, &queue, sky_bytes, "sky.png").unwrap();
 
         let trace_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: None,
@@ -547,7 +535,7 @@ impl State {
         //
         //
         //
-        let render_shader = include_str!("./shaders/shader.wgsl");
+        let render_shader = include_str!("../shaders/shader.wgsl");
         let combined_render_shader = format!("{}\n{}\n{}", shader_structs, shader_functions, render_shader);
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -555,10 +543,10 @@ impl State {
             source: wgpu::ShaderSource::Wgsl(combined_render_shader.into()),
         });
 
-        let diffuse_bytes = include_bytes!("../assets/happy-tree.png");
+        let diffuse_bytes = include_bytes!("../../assets/happy-tree.png");
         
         let diffuse_texture =
-            Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png").unwrap();
+            texture::Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png").unwrap();
 
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -725,7 +713,7 @@ impl State {
         log::warn!("Aperture Updated to: {}.", new_aperture);
     }
 
-    fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
+    pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
             self.size = new_size;
             self.config.width = new_size.width;
@@ -743,11 +731,11 @@ impl State {
         }
     }
 
-    fn input(&mut self, event: &WindowEvent) -> bool {
+    pub fn input(&mut self, event: &WindowEvent) -> bool {
         self.camera_controller.process_events(event)
     }
 
-    fn update(&mut self) {
+    pub fn update(&mut self) {
         self.camera_controller.update_camera(&mut self.camera, &mut self.clear_buffer);
         self.accumulation_array.update_buffer(&mut self.accumulation_buffer, &self.clear_buffer, &self.queue);
         self.camera_uniform = CameraUniform::from(&self.camera);    
@@ -755,7 +743,7 @@ impl State {
         self.camera_uniform.update_buffer(&self.camera_buffer, &self.queue);
     }
 
-    fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let output = self.surface.get_current_texture()?;
         let view = output
             .texture
@@ -812,101 +800,4 @@ impl State {
 
         Ok(())
     }
-}
-
-
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-pub fn confirm() {
-    println!("Render started!");
-    log::warn!("Render started!");
-}
-
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-pub fn update_camera_aperture(state: &mut State, new_aperture: f32) {
-    state.update_camera_aperture(new_aperture);
-}
-
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-pub async fn run() {
-    cfg_if::cfg_if! {
-        if #[cfg(target_arch = "wasm32")] {
-            std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-            console_log::init_with_level(log::Level::Warn).expect("Could't initialize logger");
-        } else {
-            env_logger::init();
-        }
-    }
-
-    let event_loop = EventLoop::new();
-    let window = WindowBuilder::new()
-        .with_title("Krust GPU")
-        .with_inner_size(winit::dpi::LogicalSize::new(RENDER_SIZE[0], RENDER_SIZE[1]))
-        .build(&event_loop)
-        .unwrap();
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        use winit::platform::web::WindowExtWebSys;
-        web_sys::window()
-            .and_then(|win| win.document())
-            .and_then(|doc| {
-                let dst = doc.get_element_by_id("krust-gpu")?;
-                let canvas = web_sys::Element::from(window.canvas());
-                dst.append_child(&canvas).ok()?;
-                Some(())
-            })
-            .expect("Couldn't append canvas to document body.");
-    }
-
-    let mut state = State::new(window).await;
-
-    event_loop.run(move |event, _, control_flow| {
-        match event {
-            Event::WindowEvent {
-                ref event,
-                window_id,
-            } if window_id == state.window().id() => {
-                if !state.input(event) {
-                    match event {
-                        WindowEvent::CloseRequested
-                        | WindowEvent::KeyboardInput {
-                            input:
-                                KeyboardInput {
-                                    state: ElementState::Pressed,
-                                    virtual_keycode: Some(VirtualKeyCode::Escape),
-                                    ..
-                                },
-                            ..
-                        } => {
-                            *control_flow = ControlFlow::Exit
-                        },
-                        WindowEvent::Resized(physical_size) => {
-                            state.resize(*physical_size);
-                        }
-                        WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                            state.resize(**new_inner_size);
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            Event::RedrawRequested(window_id) if window_id == state.window().id() => {
-                state.update();
-                match state.render() {
-                    Ok(_) => {}
-                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                        state.resize(state.size)
-                    }
-                    Err(wgpu::SurfaceError::OutOfMemory) => {
-                        *control_flow = ControlFlow::Exit
-                    }
-                    Err(wgpu::SurfaceError::Timeout) => log::warn!("Surface timeout"),
-                }
-            }
-            Event::MainEventsCleared => {
-                state.window().request_redraw();
-            }
-            _ => {}
-        }
-    });
 }

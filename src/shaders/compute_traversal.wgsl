@@ -6,6 +6,7 @@
 @group(0) @binding(4) var s_sky: sampler;
 @group(0) @binding(5) var<storage, read> sphereBuffer: SphereBuffer;
 @group(0) @binding(6) var<storage, read> triangleBuffer: TriangleBuffer;
+@group(0) @binding(7) var<storage, read> quadLightBuffer: QuadLightBuffer;
 
 
 @compute @workgroup_size(16, 16)
@@ -21,6 +22,7 @@ fn main(@builtin(global_invocation_id) global_ix: vec3<u32>) {
         rayIdx
         );
 
+    let test = quadLightBuffer.data[0];
     textureStore(outputTex, vec2<i32>(ix), pixelColor);
 }
 
@@ -36,27 +38,9 @@ fn sample_scene(ray: Ray, maxDepth: u32, spp: u32, pixelSize: vec2<f32>, globalI
         var currentRay = get_offset_ray(ray, pixelSize, focusDistance, rng);
 
         for (var depth = maxDepth; depth > 0u; depth = depth - 1u) {
-            // Rays be bouncing
-            var i = 0u;
-            var rec = NULL_HIT;
 
-            while (i < scene.config.num_objects) {
-                // Find closest hit
-                var hit = rec;
-                if (scene.objects[i].objectType == SPHERE_TYPE) {
-                    // We hit a sphere
-                    hit = hit_sphere(sphereBuffer.data[i], currentRay);
-                } 
-                else if (scene.objects[i].objectType == TRIANGLE_TYPE) {
-                    // We hit a triangle
-                    hit = hit_triangle(triangleBuffer.data[0], currentRay);
-                }
-                if (hit.t > 0.0 && (rec.t < 0.0 || hit.t < rec.t)) {
-                    // We hit a thing and it's closer than the last thing
-                    rec = hit;
-                }
-                i = i + 1u;
-            }
+            // Rays be bouncing
+            let rec = hit_scene(currentRay);
 
             if (rec.t > 0.0) {
                 // Handle material interaction
@@ -66,52 +50,86 @@ fn sample_scene(ray: Ray, maxDepth: u32, spp: u32, pixelSize: vec2<f32>, globalI
                 let isMetallic = rec.material.metallic > rng.x;
                 let isSpecular = specularWeight > rng.y || isMetallic;
 
+                // Light info for direct lighting
+                let light = quadLightBuffer.data[0];// Position of the light source
+                let lightDist = length(light.position.xyz - rec.p);
+                let lightColor = vec4<f32>(light.color * light.intensity * light.intensity / (lightDist * lightDist), 0.0);
+                var lightShadow = 0.0;
+                let lightSize = length(cross(light.u.xyz, light.v.xyz)); 
+                let lightSample = random_on_quad(light.position.xyz, light.normal.xyz, light.u.xyz, light.v.xyz, rng);
+                let lightDir = normalize(lightSample - rec.p);
+                let lightCos = dot(rec.normal.xyz, lightDir);
+                let lightRay = Ray(rec.p, lightDir);
+                let lightRec = hit_scene(lightRay);
+                if (lightRec.t <= 0.0 || lightRec.t >= lightDist) {
+                    lightShadow = lightShadow + 1.0;
+                }
+                let lightWeight = saturate(lightCos) * lightShadow;
+
+
                 if (isSpecular) {
                     // Sepcular -- GGX
+                    let directWeight = 0.5;
+                    let isDirect = rng.x < directWeight;
+
+                    // Indirect
                     let specularColor = vec4<f32>(1.0, 1.0, 1.0, 1.0) * rec.material.specular;
                     var f0: vec3<f32>;
                     if (isMetallic) {
                         // Conductive                        
                         localColor = localColor * rec.material.diffuse;
-                        f0 = vec3<f32>(0.9, 0.9, 0.9);
+                        f0 = vec3<f32>(0.8, 0.8, 0.8);
                     } else {
                         // Dielectric
                         localColor = localColor * specularColor;
                         f0 = vec3<f32>(0.04, 0.04, 0.04);
                     }
 
-                    // Sample GGX distribution
-                    let ggx = ggx_indirect(
-                        rec.normal, 
-                        normalize(-currentRay.direction), 
-                        rec.material.roughness, 
-                        f0,
-                        rng
+                    if (isDirect) {
+                        // Direct specular
+                        let ggx_direct = ggx_direct(
+                            rec.normal, 
+                            -currentRay.direction, 
+                            lightDir, 
+                            rec.material.roughness, 
+                            f0
                         );
 
-                    // Set ray direction and accumulate color    
-                    currentRay = Ray(rec.p, reflect(currentRay.direction, ggx.direction));
-                    localColor = localColor / specularWeight * ggx.weight;
+                        localColor = localColor / specularWeight * ggx_direct.weight * lightColor * lightWeight / directWeight;
+                        currentRay = Ray(rec.p, lightDir);
 
+                    } else {
+                        // Indirect specular
+                        let ggx_indirect = ggx_indirect(
+                            rec.normal, 
+                            -currentRay.direction, 
+                            rec.material.roughness, 
+                            f0,
+                            rng
+                            );
+    
+                        localColor = localColor / specularWeight * ggx_indirect.weight / directWeight;
+                        currentRay = Ray(rec.p, reflect(currentRay.direction, ggx_indirect.direction));  
+                    }
                 } else {
-                    // Diffuse -- cosine weighted
+                    // Diffuse
+
+                    // Direct lighting                        
+                    let directColor = localColor * rec.material.diffuse * lightColor * lightWeight;
+                                                              
+                    // Indirect lighting
                     var offset = rec.p.xy;
                     let threshold = 0.10;
                     if (abs(1.0 - rec.normal.y) < threshold) {
                         offset = rec.p.xz;
                     };
-                    localColor = localColor / diffuseWeight * rec.material.diffuse;
-                    currentRay = Ray(rec.p, rec.normal + random_unit_vector(offset * rng));
+                    let indirectColor = localColor / diffuseWeight * rec.material.diffuse;
+                    localColor = directColor + indirectColor;
+                    currentRay = Ray(rec.p, rec.normal + random_unit_vector(offset * rng)); 
+                    
                 }
-
             } else {
                 // Sky
-
-                // let unit_direction = normalize(currentRay.direction);
-                // let t = 2.0 * max(0.0, unit_direction.y);
-                // let skyColor = mix(vec4<f32>(0.8, 0.8, 0.8, 1.0), vec4<f32>(0.5, 0.7, 1.0, 1.0), t);
-                // localColor = localColor * skyColor;
-
                 let uv = vec2<f32>(atan2(currentRay.direction.z, currentRay.direction.x) / (PI * 2.0) + 0.5, -asin(currentRay.direction.y) / PI + 0.5);
                 let skyColor = textureSampleLevel(t_sky, s_sky, uv, 0.0);
                 localColor = localColor * skyColor * 0.5;
@@ -134,5 +152,29 @@ fn get_offset_ray(ray: Ray, pixelSize: vec2<f32>, focusDistance: f32, rng: vec2<
     let direction = normalize((aaDirection * focusDistance - dof));
 
     return Ray(origin, direction);
+}
+
+fn hit_scene(currentRay: Ray) -> HitRec {
+    var i = 0u;
+    var rec = NULL_HIT;
+
+    while (i < scene.config.num_objects) {
+        // Find closest hit
+        var hit = rec;
+        if (scene.objects[i].objectType == SPHERE_TYPE) {
+            // We hit a sphere
+            hit = hit_sphere(sphereBuffer.data[i], currentRay);
+        } 
+        else if (scene.objects[i].objectType == TRIANGLE_TYPE) {
+            // We hit a triangle
+            hit = hit_triangle(triangleBuffer.data[0], currentRay);
+        }
+        if (hit.t > 0.0 && (rec.t < 0.0 || hit.t < rec.t)) {
+            // We hit a thing and it's closer than the last thing
+            rec = hit;
+        }
+        i = i + 1u;
+    }
+    return rec;
 }
 

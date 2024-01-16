@@ -48,7 +48,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     accumulation_buffer.data[index] = accumulated_color;
 
     // Gamma correction
-    var gamma: f32 = 2.2; 
+    var gamma: f32 = 1.0; 
     composite.r = pow(composite.r, 1.0 / gamma);
     composite.g = pow(composite.g, 1.0 / gamma);
     composite.b = pow(composite.b, 1.0 / gamma);
