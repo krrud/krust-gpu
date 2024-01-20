@@ -132,7 +132,6 @@ fn random_in_unit_disk(rng: vec2<f32>) -> vec3<f32> {
             return p;
         }
     }
-    return vec3<f32>(0.0, 0.0, 0.0);
 }
 
 fn random_on_quad(p: vec3<f32>, n: vec3<f32>, u: vec3<f32>, v: vec3<f32>, rng: vec2<f32>) -> vec3<f32> {

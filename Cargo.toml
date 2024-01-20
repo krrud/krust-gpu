@@ -18,6 +18,8 @@ pollster = "0.3"
 wgpu = "0.18"
 winit = "0.28"
 rand = "0.8.5"
+js-sys = "0.3"
+serde = { version = "1.0", features = ["derive"] }
 
 [dependencies.image]
 version = "0.24"
@@ -28,7 +30,7 @@ features = ["png", "jpeg"]
 console_error_panic_hook = "0.1"
 console_log = "1.0"
 wgpu = "0.18"
-wasm-bindgen = "0.2"
+wasm-bindgen = { version = "0.2", features = ["serde-serialize"] }
 wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = [
     "Document",

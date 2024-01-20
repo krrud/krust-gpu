@@ -168,37 +168,5 @@ impl SceneObject {
     }
 }
 
-use wasm_bindgen::prelude::wasm_bindgen;
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-pub struct SceneJS {
-    pub aperture: f32,
-}
-
-impl SceneJS {
-    pub fn new() -> Self {
-        Self {
-            aperture: 0.0,
-        }
-    }
-}
-
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-pub fn jsNew() -> SceneJS {
-    SceneJS::new()
-}
-
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-pub fn jsUpdate(scene_js: &mut SceneJS, aperture: f32) {
-    scene_js.aperture = aperture;
-}
-
-
-// #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-// pub fn jsUpdateGPU(scene: &mut Scene, scene_js: &SceneJS) {
-//     scene.camera.aperture = scene_js.aperture;
-// }
-
 
 

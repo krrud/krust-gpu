@@ -1,7 +1,9 @@
 mod primitives;
+mod wasm;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
+use js_sys::Function;
 use std::iter;
 use wgpu::{Buffer, Device, BufferUsages, Extent3d, SamplerBindingType};
 use wgpu::util::DeviceExt;
@@ -13,13 +15,14 @@ use winit::{
 };
 
 use cgmath::{InnerSpace, Vector3, prelude::*};
+use wasm::state::StateJS;
 use primitives::texture::Texture;
 use primitives::material::Material;
 use primitives::sphere::Sphere;
 use primitives::triangle::Triangle;
 use primitives::lights::QuadLight;
 use primitives::pixel_buffer::PixelBuffer;
-use primitives::scene::{Scene, RenderConfig, SceneObject, SceneJS};
+use primitives::scene::{Scene, RenderConfig, SceneObject};
 use primitives::ray::{Ray, RayBuffer};
 use primitives::hit::HitRec;
 use primitives::camera::{Camera, CameraUniform, CameraController};
@@ -260,8 +263,8 @@ impl State {
 
         let render_config = RenderConfig::new(
             size.into(), // pixel size
-            64, // ray depth
-            4, // samples
+            16, // ray depth
+            2, // samples
         );
 
         let scene = Scene::from(render_config, camera_uniform, scene_objects);
@@ -379,7 +382,7 @@ impl State {
         //
         let traversal_shader = include_str!("./shaders/compute_traversal.wgsl");
         let combined_traversal_shader = format!("{}\n{}\n{}\n{}", shader_structs, shader_functions, ggx, traversal_shader);
-        let cs_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let trace_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Traversal Shader"),
             source: wgpu::ShaderSource::Wgsl(combined_traversal_shader.into()),
         });
@@ -537,7 +540,7 @@ impl State {
         let trace_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: None,
             layout: Some(&trace_pipeline_layout),
-            module: &cs_module,
+            module: &trace_module,
             entry_point: "main",
         });
 
@@ -720,11 +723,6 @@ impl State {
         &self.window
     }
 
-    pub fn update_camera_aperture(&mut self, new_aperture: f32) {
-        self.camera.aperture = new_aperture;
-        log::warn!("Aperture Updated to: {}.", new_aperture);
-    }
-
     fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
             self.size = new_size;
@@ -747,12 +745,28 @@ impl State {
         self.camera_controller.process_events(event)
     }
 
-    fn update(&mut self) {
+    fn match_js(&mut self, state_js: &StateJS) {
+        let mut changed = false;
+        if state_js.aperture != self.camera.aperture {
+            self.camera.aperture = state_js.aperture;
+            log::warn!("Aperture Updated to: {}.", state_js.aperture);
+            println!("Aperture Updated to: {}.", state_js.aperture);
+            changed = true;
+        };
+        if changed {
+            self.clear_buffer = true;
+        };
+    }
+
+    fn update(&mut self, &state_js: &StateJS) {
+
+        self.match_js(&state_js);
         self.camera_controller.update_camera(&mut self.camera, &mut self.clear_buffer);
         self.accumulation_array.update_buffer(&mut self.accumulation_buffer, &self.clear_buffer, &self.queue);
         self.camera_uniform = CameraUniform::from(&self.camera);    
-        self.scene.update_buffer(&self.scene_buffer, &mut self.clear_buffer, &self.queue);
         self.camera_uniform.update_buffer(&self.camera_buffer, &self.queue);
+        self.scene.camera = self.camera_uniform;
+        self.scene.update_buffer(&self.scene_buffer, &mut self.clear_buffer, &self.queue);
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -822,12 +836,7 @@ pub fn confirm() {
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-pub fn update_camera_aperture(state: &mut State, new_aperture: f32) {
-    state.update_camera_aperture(new_aperture);
-}
-
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-pub async fn run() {
+pub async fn run(get_js: Function) {
     cfg_if::cfg_if! {
         if #[cfg(target_arch = "wasm32")] {
             std::panic::set_hook(Box::new(console_error_panic_hook::hook));
@@ -891,7 +900,10 @@ pub async fn run() {
                 }
             }
             Event::RedrawRequested(window_id) if window_id == state.window().id() => {
-                state.update();
+
+                let state_js: StateJS = get_js.call0(&JsValue::null()).unwrap().into_serde().unwrap();
+                state.update(&state_js);
+
                 match state.render() {
                     Ok(_) => {}
                     Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
