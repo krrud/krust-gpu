@@ -57,8 +57,6 @@ impl Scene {
         } else {
             self.config.update(false);
         }
-        *clear_buffer = false;
-
         let config_bytes = bytemuck::bytes_of(&self.config);
         let camera_bytes = bytemuck::bytes_of(&self.camera);
         let objects_bytes = bytemuck::cast_slice(&self.objects);
@@ -77,6 +75,9 @@ pub struct RenderConfig {
     pub samples: u32,
     pub num_objects: u32,
     pub count: u32,
+    pub sky_intensity: f32,
+    pub sky_color: [f32; 4],
+    _padding: [u32; 3],
 }
 
 impl RenderConfig {
@@ -89,6 +90,9 @@ impl RenderConfig {
             samples: 16,
             num_objects: 0,
             count: 1,
+            sky_intensity: 1.0,
+            sky_color: [1.0, 1.0, 1.0, 1.0],
+            _padding: [0; 3],
         }
     }
 
@@ -102,6 +106,9 @@ impl RenderConfig {
             samples,
             num_objects: 0,
             count: 1,
+            sky_intensity: 1.0,
+            sky_color: [1.0, 1.0, 1.0, 1.0],
+            _padding: [0; 3],
         }
     }
 
@@ -120,7 +127,6 @@ impl RenderConfig {
 pub struct SceneObject {
     object_type: u32,
     index: u32,
-    // _padding: [u32; 2],
 }
 
 impl SceneObject {
@@ -128,7 +134,6 @@ impl SceneObject {
         Self {
             object_type,
             index,
-            // _padding: [0; 2],
         }
     }
 

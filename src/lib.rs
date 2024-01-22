@@ -264,7 +264,7 @@ impl State {
         let render_config = RenderConfig::new(
             size.into(), // pixel size
             16, // ray depth
-            2, // samples
+            1, // samples
         );
 
         let scene = Scene::from(render_config, camera_uniform, scene_objects);
@@ -728,15 +728,18 @@ impl State {
             self.size = new_size;
             self.config.width = new_size.width;
             self.config.height = new_size.height;
+            self.render_config.size = new_size.into();
+            self.render_config.pixel_size = [1.0 / new_size.width as f32, 1.0 / new_size.height as f32];
             self.surface.configure(&self.device, &self.config);
 
-            // Update buffers
-            self.accumulation_array.update_buffer(&mut self.accumulation_buffer, &self.clear_buffer, &self.queue);
+            // Update buffers            
             self.camera.aspect = new_size.width as f32 / new_size.height as f32;            
             self.camera_ray_uniform = RayBuffer::new([new_size.width, new_size.height]);
             self.camera_ray_uniform.update_buffer(&self.camera_ray_buffer, &self.queue);
             self.camera_uniform = CameraUniform::from(&self.camera);
             self.camera_uniform.update_buffer(&self.camera_buffer, &self.queue);
+            self.scene.camera = self.camera_uniform;
+            self.scene.config = self.render_config;
             self.scene.update_buffer(&self.scene_buffer, &mut self.clear_buffer, &self.queue);
         }
     }
@@ -746,14 +749,23 @@ impl State {
     }
 
     fn match_js(&mut self, state_js: &StateJS) {
-        let mut changed = false;
-        if state_js.aperture != self.camera.aperture {
-            self.camera.aperture = state_js.aperture;
-            log::warn!("Aperture Updated to: {}.", state_js.aperture);
-            println!("Aperture Updated to: {}.", state_js.aperture);
-            changed = true;
+        if  self.camera.aperture != state_js.camera.aperture{
+            self.camera.aperture = state_js.camera.aperture;
+            self.clear_buffer = true;
         };
-        if changed {
+        if self.camera.fovy != state_js.camera.fov {
+
+            self.camera.fovy = state_js.camera.fov;
+            self.clear_buffer = true;
+        };
+        if state_js.config.size[0] != self.render_config.size[0] || state_js.config.size[1] != self.render_config.size[1] {
+            // TODO: Need to update trace texture resolution and trace pipeline to handle size change
+            // self.resize(state_js.config.size.into());
+            // self.clear_buffer = true;
+        };
+        if state_js.config.sky_intensity != self.render_config.sky_intensity {
+            self.render_config.sky_intensity = state_js.config.sky_intensity;
+            self.scene.config.sky_intensity = state_js.config.sky_intensity;
             self.clear_buffer = true;
         };
     }
@@ -767,6 +779,7 @@ impl State {
         self.camera_uniform.update_buffer(&self.camera_buffer, &self.queue);
         self.scene.camera = self.camera_uniform;
         self.scene.update_buffer(&self.scene_buffer, &mut self.clear_buffer, &self.queue);
+        self.clear_buffer = false;
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -887,7 +900,7 @@ pub async fn run(get_js: Function) {
                                 },
                             ..
                         } => {
-                            *control_flow = ControlFlow::Exit
+                            // *control_flow = ControlFlow::Exit
                         },
                         WindowEvent::Resized(physical_size) => {
                             state.resize(*physical_size);
@@ -910,7 +923,7 @@ pub async fn run(get_js: Function) {
                         state.resize(state.size)
                     }
                     Err(wgpu::SurfaceError::OutOfMemory) => {
-                        *control_flow = ControlFlow::Exit
+                    //     *control_flow = ControlFlow::Exit
                     }
                     Err(wgpu::SurfaceError::Timeout) => log::warn!("Surface timeout"),
                 }

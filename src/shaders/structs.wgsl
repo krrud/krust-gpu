@@ -78,6 +78,8 @@ struct RenderConfig {
     samples: u32,
     num_objects: u32,
     count: u32,
+    sky_intensity: f32,
+    sky_color: vec4<f32>,
 }
 
 struct Ray {

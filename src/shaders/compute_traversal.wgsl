@@ -132,7 +132,7 @@ fn sample_scene(ray: Ray, maxDepth: u32, spp: u32, pixelSize: vec2<f32>, globalI
                 // Sky
                 let uv = vec2<f32>(atan2(currentRay.direction.z, currentRay.direction.x) / (PI * 2.0) + 0.5, -asin(currentRay.direction.y) / PI + 0.5);
                 let skyColor = textureSampleLevel(t_sky, s_sky, uv, 0.0);
-                localColor = localColor * skyColor * 0.5;
+                localColor = localColor * skyColor * max(0.001, scene.config.sky_intensity);
                 break;
             }
         }
@@ -165,10 +165,10 @@ fn hit_scene(currentRay: Ray) -> HitRec {
             // We hit a sphere
             hit = hit_sphere(sphereBuffer.data[i], currentRay);
         } 
-        else if (scene.objects[i].objectType == TRIANGLE_TYPE) {
-            // We hit a triangle
-            hit = hit_triangle(triangleBuffer.data[0], currentRay);
-        }
+        // else if (scene.objects[i].objectType == TRIANGLE_TYPE) {
+        //     // We hit a triangle
+        //     hit = hit_triangle(triangleBuffer.data[0], currentRay);
+        // }
         if (hit.t > 0.0 && (rec.t < 0.0 || hit.t < rec.t)) {
             // We hit a thing and it's closer than the last thing
             rec = hit;

@@ -24,6 +24,5 @@ impl PixelBuffer {
             self.data = vec![0.0; self.data.len()];
             queue.write_buffer(buffer, 0, bytemuck::cast_slice(&self.data));
         }
-
     }
 }
