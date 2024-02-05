@@ -8,3 +8,5 @@ pub mod triangle;
 pub mod pixel_buffer;
 pub mod lights;
 pub mod texture;
+pub mod tri_mesh;
+pub mod aabb;

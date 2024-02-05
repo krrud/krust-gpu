@@ -10,7 +10,7 @@ use rand::random;
 pub struct Scene {
     pub config: RenderConfig,
     pub camera: CameraUniform,
-    pub objects: Vec<SceneObject>,
+    // pub objects: Vec<SceneObject>,
 }
 
 impl Scene {
@@ -18,7 +18,7 @@ impl Scene {
         Scene {
             config: RenderConfig::default(),
             camera: CameraUniform::new(),
-            objects: Vec::new(),
+            // objects: Vec::new(),
         }
     }
 
@@ -27,23 +27,23 @@ impl Scene {
         Scene {
             config,
             camera,
-            objects,
+            // objects,
         }
     }
 
-    pub fn add(&mut self, object: SceneObject) {
-        self.objects.push(object);
-    }
+    // pub fn add(&mut self, object: SceneObject) {
+    //     self.objects.push(object);
+    // }
 
-    pub fn objects(&self) -> &[SceneObject] {
-        &self.objects
-    }
+    // pub fn objects(&self) -> &[SceneObject] {
+    //     &self.objects
+    // }
 
     pub fn to_buffer(&self, device: &wgpu::Device) -> wgpu::Buffer {
         let config_bytes = bytemuck::bytes_of(&self.config);
         let camera_bytes = bytemuck::bytes_of(&self.camera);
-        let objects_bytes = bytemuck::cast_slice(&self.objects);
-        let buffer_contents = [config_bytes, camera_bytes, objects_bytes].concat();
+        // let objects_bytes = bytemuck::cast_slice(&self.objects);
+        let buffer_contents = [config_bytes, camera_bytes].concat();
         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Scene Buffer"),
             contents: &buffer_contents,
@@ -59,8 +59,8 @@ impl Scene {
         }
         let config_bytes = bytemuck::bytes_of(&self.config);
         let camera_bytes = bytemuck::bytes_of(&self.camera);
-        let objects_bytes = bytemuck::cast_slice(&self.objects);
-        let buffer_contents = [config_bytes, camera_bytes, objects_bytes].concat();
+        // let objects_bytes = bytemuck::cast_slice(&self.objects);
+        let buffer_contents = [config_bytes, camera_bytes].concat();
         queue.write_buffer(buffer, 0, &buffer_contents);
     }
 }
@@ -154,6 +154,15 @@ impl SceneObject {
         out
     }
 
+    pub fn from_tri_vec(triangles: &[Triangle]) -> Vec<Self> {
+        let out = triangles
+            .into_iter()
+            .enumerate()
+            .map(|(i, _)| Self::new(0 as u32, i as u32))
+            .collect();
+        out
+    }
+
     pub fn add(scene_objects: &mut Vec<SceneObject>, spheres: Option<&[Sphere]>, tris: Option<&[Triangle]>) {
         if let Some(spheres) = spheres {
             let mut i = scene_objects.len();
@@ -165,7 +174,7 @@ impl SceneObject {
     
         if let Some(tris) = tris {
             let mut i = scene_objects.len();
-            for sphere in spheres {
+            for tri in tris {
                 scene_objects.push(SceneObject::from_triangle(i as u32));
                 i += 1;
             }

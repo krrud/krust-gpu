@@ -1,5 +1,6 @@
 mod primitives;
 mod wasm;
+mod process;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -16,6 +17,8 @@ use winit::{
 
 use cgmath::{InnerSpace, Vector3, prelude::*};
 use wasm::state::StateJS;
+use process::glb::{load_glb};
+use process::bvh::{BVHNode, BVH};
 use primitives::texture::Texture;
 use primitives::material::Material;
 use primitives::sphere::Sphere;
@@ -230,7 +233,25 @@ impl State {
             [0.0, 2.0 * (3.0_f32).sqrt(), 0.0],
             mat_gold,
         );
-        let scene_triangles = vec![tri1];
+
+        let glb_bytes = include_bytes!("../assets/test.glb");
+        let glb = load_glb(glb_bytes);
+        let mut scene_triangles: Vec<Triangle> = vec![];
+        for mesh in glb.meshes() {
+            for chunk in mesh.indices.chunks(3) {
+                let tri = Triangle::new(
+                    mesh.vertices[chunk[0] as usize],
+                    mesh.vertices[chunk[1] as usize],
+                    mesh.vertices[chunk[2] as usize],
+                    glb.materials()[mesh.material_index],
+                );
+                scene_triangles.push(tri);
+            }
+        }
+
+        let bvh = BVH::new(&mut scene_triangles, 42069);
+        let bvh_buffer = bvh.to_buffer(&device);     
+        log::warn!("{:#?}", bvh.nodes().len());
         let triangle_bytes = bytemuck::cast_slice(&scene_triangles);
         let triangle_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Triangle Buffer"),
@@ -247,7 +268,7 @@ impl State {
         let sphere6 = Sphere::new([0.0, 0.25, 0.0], 0.25, mat_gold);
         let ground = Sphere::new([0.0, -100.0, 0.0], 100.0, mat_gray);
         let mut scene_spheres = vec![sphere2, sphere3, sphere4, sphere5, sphere6, ground];
-        let mut scene_objects = SceneObject::from_sphere_vec(&scene_spheres);
+        let mut scene_objects = SceneObject::from_tri_vec(&scene_triangles);
 
         let new_sphere = Sphere::new([0.0, 2.5, 0.0], 0.5, mat_emissive);
         scene_spheres.push(new_sphere);
@@ -458,6 +479,16 @@ impl State {
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
+                    // wgpu::BindGroupLayoutEntry {
+                    //     binding: 5,
+                    //     visibility: wgpu::ShaderStages::COMPUTE,
+                    //     ty: wgpu::BindingType::Buffer {
+                    //         ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    //         has_dynamic_offset: false,
+                    //         min_binding_size: None,
+                    //     },
+                    //     count: None,
+                    // },
                     wgpu::BindGroupLayoutEntry {
                         binding: 5,
                         visibility: wgpu::ShaderStages::COMPUTE,
@@ -515,9 +546,13 @@ impl State {
                     binding: 4,
                     resource: wgpu::BindingResource::Sampler(&sky_texture.sampler),
                 },
+                // wgpu::BindGroupEntry {
+                //     binding: 5,
+                //     resource: sphere_buffer.as_entire_binding(),
+                // },
                 wgpu::BindGroupEntry {
                     binding: 5,
-                    resource: sphere_buffer.as_entire_binding(),
+                    resource: bvh_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 6,
@@ -527,6 +562,7 @@ impl State {
                     binding: 7,
                     resource: light_buffer.as_entire_binding(),
                 },
+
             ],
         });
 
@@ -915,6 +951,7 @@ pub async fn run(get_js: Function) {
             Event::RedrawRequested(window_id) if window_id == state.window().id() => {
 
                 let state_js: StateJS = get_js.call0(&JsValue::null()).unwrap().into_serde().unwrap();
+                // let state_js = StateJS::new();
                 state.update(&state_js);
 
                 match state.render() {

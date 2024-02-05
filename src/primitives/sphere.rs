@@ -6,11 +6,10 @@ pub struct Sphere {
     center: [f32; 3],
     radius: f32,
     material: Material,
-    _padding: [f32; 3],
 }
 
 impl Sphere {
     pub fn new(center: [f32; 3], radius: f32, material: Material) -> Self {
-        Sphere { center, radius, material, _padding: [0.0; 3] }
+        Sphere {center, radius, material}
     }
 }

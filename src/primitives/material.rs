@@ -7,6 +7,7 @@ pub struct Material {
     pub metallic: f32,
     pub refract: f32,
     pub ior: f32,
+    _padding: [u32; 3],
 }
 
 impl Material {
@@ -25,6 +26,7 @@ impl Material {
             metallic,
             refract,
             ior,
+            _padding: [0; 3],
         }
     }
 }

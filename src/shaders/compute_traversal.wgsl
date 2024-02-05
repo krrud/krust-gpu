@@ -4,9 +4,11 @@
 @group(0) @binding(2) var outputTex: texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(3) var t_sky: texture_2d<f32>;
 @group(0) @binding(4) var s_sky: sampler;
-@group(0) @binding(5) var<storage, read> sphereBuffer: SphereBuffer;
+// @group(0) @binding(5) var<storage, read> sphereBuffer: SphereBuffer;
+@group(0) @binding(5) var<storage, read> bvhBuffer: BVHBuffer;
 @group(0) @binding(6) var<storage, read> triangleBuffer: TriangleBuffer;
 @group(0) @binding(7) var<storage, read> quadLightBuffer: QuadLightBuffer;
+
 
 
 @compute @workgroup_size(16, 16)
@@ -40,7 +42,8 @@ fn sample_scene(ray: Ray, maxDepth: u32, spp: u32, pixelSize: vec2<f32>, globalI
         for (var depth = maxDepth; depth > 0u; depth = depth - 1u) {
 
             // Rays be bouncing
-            let rec = hit_scene(currentRay);
+            // let rec = hit_scene(currentRay);
+            let rec = hit_bvh(currentRay);
 
             if (rec.t > 0.0) {
                 // Handle material interaction
@@ -51,7 +54,7 @@ fn sample_scene(ray: Ray, maxDepth: u32, spp: u32, pixelSize: vec2<f32>, globalI
                 let isSpecular = specularWeight > rng.y || isMetallic;
 
                 // Light info for direct lighting
-                let light = quadLightBuffer.data[0];// Position of the light source
+                let light = quadLightBuffer.data[0];// Position of the light source TODO: update to handle multiple lights
                 let lightDist = length(light.position.xyz - rec.p);
                 let lightColor = vec4<f32>(light.color * light.intensity * light.intensity / (lightDist * lightDist), 0.0);
                 var lightShadow = 0.0;
@@ -60,7 +63,7 @@ fn sample_scene(ray: Ray, maxDepth: u32, spp: u32, pixelSize: vec2<f32>, globalI
                 let lightDir = normalize(lightSample - rec.p);
                 let lightCos = dot(rec.normal.xyz, lightDir);
                 let lightRay = Ray(rec.p, lightDir);
-                let lightRec = hit_scene(lightRay);
+                let lightRec = hit_bvh(lightRay);
                 if (lightRec.t <= 0.0 || lightRec.t >= lightDist) {
                     lightShadow = lightShadow + 1.0;
                 }
@@ -154,27 +157,115 @@ fn get_offset_ray(ray: Ray, pixelSize: vec2<f32>, focusDistance: f32, rng: vec2<
     return Ray(origin, direction);
 }
 
-fn hit_scene(currentRay: Ray) -> HitRec {
-    var i = 0u;
-    var rec = NULL_HIT;
+// fn hit_scene(currentRay: Ray) -> HitRec {
+//     var i = 0u;
+//     var rec = NULL_HIT;
 
-    while (i < scene.config.num_objects) {
-        // Find closest hit
-        var hit = rec;
-        if (scene.objects[i].objectType == SPHERE_TYPE) {
-            // We hit a sphere
-            hit = hit_sphere(sphereBuffer.data[i], currentRay);
-        } 
-        // else if (scene.objects[i].objectType == TRIANGLE_TYPE) {
-        //     // We hit a triangle
-        //     hit = hit_triangle(triangleBuffer.data[0], currentRay);
-        // }
-        if (hit.t > 0.0 && (rec.t < 0.0 || hit.t < rec.t)) {
-            // We hit a thing and it's closer than the last thing
-            rec = hit;
+//     while (i < scene.config.num_objects) {
+//         // Find closest hit
+//         var hit = rec;
+//         // if (scene.objects[i].objectType == SPHERE_TYPE) {
+//         //     // We hit a sphere
+//         //     hit = hit_sphere(sphereBuffer.data[i], currentRay);
+//         // } 
+//         if (scene.objects[i].objectType == TRIANGLE_TYPE) {
+//             // We hit a triangle
+//             hit = hit_triangle(triangleBuffer.data[i], currentRay);
+//         }
+//         if (hit.t > 0.0 && (rec.t < 0.0 || hit.t < rec.t)) {
+//             // We hit a thing and it's closer than the last thing
+//             rec = hit;
+//         }
+//         i = i + 1u;
+//     }
+//     return rec;
+// }
+
+
+fn hit_bvh(ray: Ray) -> HitRec {
+    var rec: HitRec = NULL_HIT;
+    var stack: array<i32, 32>;
+    var stack_top: i32 = 0;
+    stack[stack_top] = bvhBuffer.root;
+
+    while (stack_top >= 0) {
+        let node_index: i32 = stack[stack_top];
+        stack_top -= 1;
+
+        let node = bvhBuffer.nodes[node_index];
+
+        if (node.triangle >= 0) {
+            // Leaf
+            let hit: HitRec = hit_triangle(triangleBuffer.data[node.triangle], ray);
+            if (hit.t > 0.0 && (rec.t < 0.0 || hit.t < rec.t)) {
+                rec = hit;
+            }
+        } else {
+            // Branch
+            if (hit_aabb(ray, node.aabb)) {
+                stack_top += 1;
+                stack[stack_top] = node.left;
+                stack_top += 1;
+                stack[stack_top] = node.right;
+            }
         }
-        i = i + 1u;
     }
+
     return rec;
 }
 
+
+fn hit_aabb(ray: Ray, box: AABB) -> bool {
+    var tmin: f32 = (box.min.x - ray.origin.x) / ray.direction.x;
+    var tmax: f32 = (box.max.x - ray.origin.x) / ray.direction.x;
+
+    if (ray.direction.x < 0.0) {
+        let temp = tmin;
+        tmin = tmax;
+        tmax = temp;
+    }
+
+    var tymin: f32 = (box.min.y - ray.origin.y) / ray.direction.y;
+    var tymax: f32 = (box.max.y - ray.origin.y) / ray.direction.y;
+
+    if (ray.direction.y < 0.0) {
+        let temp = tymin;
+        tymin = tymax;
+        tymax = temp;
+    }
+
+    if ((tmin > tymax) || (tymin > tmax)){
+        return false;
+    }
+
+    if (tymin > tmin){
+        tmin = tymin;  
+    }
+
+    if (tymax < tmax){
+        tmax = tymax;    
+    }
+
+    var tzmin: f32 = (box.min.z - ray.origin.z) / ray.direction.z;
+    var tzmax: f32 = (box.max.z - ray.origin.z) / ray.direction.z;
+
+    if (ray.direction.z < 0.0) {
+        let temp = tzmin;
+        tzmin = tzmax;
+        tzmax = temp;
+    }
+
+    if ((tmin > tzmax) || (tzmin > tmax)){
+        return false;
+    }
+
+    if (tzmin > tmin){
+        tmin = tzmin;
+    }
+
+    if (tzmax < tmax) {
+        tmax = tzmax;
+    }
+
+    return tmax >= 0.0;
+}

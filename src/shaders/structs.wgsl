@@ -12,6 +12,10 @@ const QUADLIGHT_TYPE: u32 = 3u;
 const NULL_MATERIAL = Material(vec4<f32>(0.0, 0.0, 0.0, 0.0), 0.0, 0.0, 0.0, 0.0, 1.5);
 const NULL_HIT = HitRec(-1.0, vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 0.0), NULL_MATERIAL);
 
+// Sizes
+const MAX_BVH_SIZE: u32 = 1024;
+
+
 struct SceneObject {
     objectType: u32,
     index: u32,
@@ -67,7 +71,7 @@ struct SphereBuffer {
 struct Scene {
     config: RenderConfig,
     camera: CameraUniform,
-    objects: array<SceneObject>,
+    // objects: array<SceneObject>,
 }
 
 struct RenderConfig {
@@ -117,3 +121,19 @@ struct PixelBuffer {
     data: array<vec4<f32>>
 }
 
+struct AABB {
+    min: vec4<f32>,
+    max: vec4<f32>,
+}
+
+struct BVHNode {
+    aabb: AABB,
+    left: i32,
+    right: i32,
+    triangle: i32,
+}
+
+struct BVHBuffer {
+    root: i32,
+    nodes: array<BVHNode>,
+}

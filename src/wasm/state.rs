@@ -20,7 +20,7 @@ pub struct StateJS {
 }
 
 impl StateJS {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             config: Config {
                 size: [1280, 720],
