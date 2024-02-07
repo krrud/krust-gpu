@@ -1,6 +1,6 @@
 // Global constants
 const PI: f32 = 3.1415926535897932384626433832795;
-const EPSILON: f32 = 1e-6;
+const EPSILON: f32 = 1e-5;
 
 // Scene object types in place of an enum
 const TRIANGLE_TYPE: u32 = 0u;
@@ -38,6 +38,9 @@ struct Triangle {
     a: vec4<f32>,
     b: vec4<f32>,
     c: vec4<f32>,
+    na: vec4<f32>,
+    nb: vec4<f32>,
+    nc: vec4<f32>,
     material: Material,
 };
 

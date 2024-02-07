@@ -1,7 +1,6 @@
-use cgmath::InnerSpace;
+use cgmath::{InnerSpace, Rotation3, Rotation};
 use winit::event::*;
 use wgpu::util::DeviceExt;
-
 
 pub struct Camera {
     pub origin: cgmath::Point3<f32>,
@@ -80,6 +79,14 @@ pub struct CameraController {
     is_backward_pressed: bool,
     is_left_pressed: bool,
     is_right_pressed: bool,
+    is_left_mouse_button_pressed: bool,
+    is_middle_mouse_button_pressed: bool,
+    is_right_mouse_button_pressed: bool,
+    is_shift_pressed: bool,
+    last_mouse_position: Option<(f64, f64)>,
+    initial_mouse_position: Option<(f32, f32)>,
+    is_rotating: bool,
+    is_panning: bool,
 }
 
 impl CameraController {
@@ -92,6 +99,14 @@ impl CameraController {
             is_backward_pressed: false,
             is_left_pressed: false,
             is_right_pressed: false,
+            is_left_mouse_button_pressed: false,
+            is_middle_mouse_button_pressed: false,
+            is_right_mouse_button_pressed: false,
+            is_shift_pressed: false,
+            last_mouse_position: None,
+            initial_mouse_position: None,
+            is_rotating: false,
+            is_panning: false,
         }
     }
 
@@ -113,7 +128,7 @@ impl CameraController {
                         true
                     }
                     VirtualKeyCode::LShift => {
-                        self.is_down_pressed = is_pressed;
+                        self.is_shift_pressed = is_pressed;
                         true
                     }
                     VirtualKeyCode::W | VirtualKeyCode::Up => {
@@ -135,15 +150,95 @@ impl CameraController {
                     _ => false,
                 }
             }
+            WindowEvent::MouseInput { button, state, .. } => {
+                match button {
+                    MouseButton::Left => {
+                        if self.is_shift_pressed {
+                            self.is_panning = *state == ElementState::Pressed;
+                        } else {
+                            self.is_rotating = *state == ElementState::Pressed;
+                        }
+                    }
+                    MouseButton::Middle => {
+                        self.is_middle_mouse_button_pressed = *state == ElementState::Pressed;
+                    }
+                    MouseButton::Right => {
+                        self.is_right_mouse_button_pressed = *state == ElementState::Pressed;
+                    }
+                    _ => {}
+                }
+                true
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                self.last_mouse_position = Some((position.x, position.y));
+                true
+            }
             _ => false,
         }
     }
 
-    pub fn update_camera(&self, camera: &mut Camera, clear_buffer: &mut bool) {
+    pub fn update_camera(&mut self, camera: &mut Camera, clear_buffer: &mut bool) {
         use cgmath::InnerSpace;
         let forward = camera.focus - camera.origin;
         let forward_norm = forward.normalize();
         let forward_mag = forward.magnitude();
+
+        if self.is_rotating {
+            if let Some((last_x, last_y)) = self.last_mouse_position {
+                let last_x = last_x as f32;
+                let last_y = last_y as f32;
+                if let Some((initial_x, initial_y)) = self.initial_mouse_position {
+                    let sensitivity = 0.15;  
+                    let threshold = 0.00;      
+                    let delta_x = initial_x - last_x;
+                    let delta_y = initial_y - last_y;
+        
+                    if delta_x.abs() > threshold && delta_y.abs() > threshold {
+                        let yaw = cgmath::Deg(delta_x * sensitivity);
+                        let pitch = cgmath::Deg(delta_y * sensitivity);
+                        let direction = (camera.focus - camera.origin).normalize();
+                        let right = direction.cross(cgmath::Vector3::unit_y()).normalize();
+                        let up = right.cross(direction).normalize();
+        
+                        let yaw_rotation = cgmath::Quaternion::from_axis_angle(up, yaw);
+                        let pitch_rotation = cgmath::Quaternion::from_axis_angle(right, pitch);
+                
+                        let rotation = yaw_rotation * pitch_rotation;
+                        let rotated_direction = rotation.rotate_vector(camera.origin - camera.focus);               
+        
+                        camera.origin = camera.focus + rotated_direction;
+                        *clear_buffer = true;
+                    }
+                }
+                self.initial_mouse_position = Some((last_x, last_y));
+            }  
+                  
+        } else if self.is_panning {
+            if let Some((last_x, last_y)) = self.last_mouse_position {
+                let last_x = last_x as f32;
+                let last_y = last_y as f32;
+                if let Some((initial_x, initial_y)) = self.initial_mouse_position {
+                    let sensitivity = 0.005;
+                    let delta_x = initial_x - last_x;
+                    let delta_y = last_y - initial_y;
+        
+                    let direction = (camera.focus - camera.origin).normalize();
+                    let right = direction.cross(cgmath::Vector3::unit_y()).normalize();
+                    let up = right.cross(direction).normalize();
+        
+                    let pan_direction_local = cgmath::Vector3::new(delta_x, delta_y, 0.0) * sensitivity;
+                    let pan_direction_world = right * pan_direction_local.x + up * pan_direction_local.y;
+        
+                    camera.origin += pan_direction_world;
+                    camera.focus += pan_direction_world;
+                    *clear_buffer = true;
+                }
+                self.initial_mouse_position = Some((last_x, last_y));
+            }
+        } else {
+            self.initial_mouse_position = None;
+            self.last_mouse_position = None;
+        }
 
         if self.is_forward_pressed && forward_mag > self.speed {
             camera.origin += forward_norm * self.speed;
@@ -159,12 +254,12 @@ impl CameraController {
         let forward_mag = forward.magnitude();
 
         if self.is_right_pressed {
-            camera.origin = camera.focus - (forward + right * self.speed).normalize() * forward_mag;
-        }
-        if self.is_left_pressed {
             camera.origin = camera.focus - (forward - right * self.speed).normalize() * forward_mag;
         }
-        if self.is_up_pressed || self.is_down_pressed || self.is_left_pressed || self.is_right_pressed || self.is_forward_pressed || self.is_backward_pressed {
+        if self.is_left_pressed {
+            camera.origin = camera.focus - (forward + right * self.speed).normalize() * forward_mag;
+        }
+        if self.is_up_pressed || self.is_down_pressed || self.is_forward_pressed || self.is_backward_pressed || self.is_left_pressed || self.is_right_pressed {
             *clear_buffer = true;
         }
     }
@@ -172,13 +267,7 @@ impl CameraController {
 
 
 
-
-
-
-
-
-
-
+// MATRIX PROJECTION BASED CAMERA
 // #[repr(C)]
 // #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 // struct CameraUniform {

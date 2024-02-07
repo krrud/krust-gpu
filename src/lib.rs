@@ -143,7 +143,7 @@ impl State {
         let camera = Camera {
             origin: (0.0, 4.0, 6.0).into(),
             focus: (0.0, 0.0, 0.0).into(),
-            aperture: 0.2,
+            aperture: 0.0,
             fovy: 50.0,
             aspect: (config.width as f32 / config.height as f32).into(),
         };
@@ -154,11 +154,11 @@ impl State {
 
         let mut lights = Vec::new();
         let light1 = QuadLight::new(
-            Vector3::new(10.0, 8.0, 2.0),   // Position
+            Vector3::new(10.0, 8.0, 2.0),  // Position
             Vector3::new(0.0, 0.0, 0.0),   // Aim
-            [12.0, 12.0].into(),             // Size
+            [12.0, 12.0].into(),           // Size
             [1.0, 1.0, 1.0].into(),        // Color
-            28.0,                          // Intensity
+            29.0,                          // Intensity
         );
         lights.push(light1);
         let light_buffer = QuadLight::to_buffer(&lights, &device);
@@ -226,14 +226,6 @@ impl State {
             1.4,
         );
 
-
-        let tri1 = Triangle::new(
-            [-2.0, 0.0, 0.0], 
-            [2.0, 0.0, 0.0], 
-            [0.0, 2.0 * (3.0_f32).sqrt(), 0.0],
-            mat_gold,
-        );
-
         let glb_bytes = include_bytes!("../assets/test.glb");
         let glb = load_glb(glb_bytes);
         let mut scene_triangles: Vec<Triangle> = vec![];
@@ -243,6 +235,9 @@ impl State {
                     mesh.vertices[chunk[0] as usize],
                     mesh.vertices[chunk[1] as usize],
                     mesh.vertices[chunk[2] as usize],
+                    mesh.normals[chunk[0] as usize],
+                    mesh.normals[chunk[1] as usize],
+                    mesh.normals[chunk[2] as usize],
                     glb.materials()[mesh.material_index],
                 );
                 scene_triangles.push(tri);
@@ -251,7 +246,7 @@ impl State {
 
         let bvh = BVH::new(&mut scene_triangles, 42069);
         let bvh_buffer = bvh.to_buffer(&device);     
-        log::warn!("{:#?}", bvh.nodes().len());
+ 
         let triangle_bytes = bytemuck::cast_slice(&scene_triangles);
         let triangle_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Triangle Buffer"),
@@ -283,8 +278,8 @@ impl State {
         
 
         let render_config = RenderConfig::new(
-            size.into(), // pixel size
-            16, // ray depth
+            size.into(), // pixel dimensions
+            8, // ray depth
             1, // samples
         );
 
@@ -408,7 +403,7 @@ impl State {
             source: wgpu::ShaderSource::Wgsl(combined_traversal_shader.into()),
         });
 
-        let sky_bytes = include_bytes!("../assets/sky4.png");
+        let sky_bytes = include_bytes!("../assets/sky2.png");
         
         let sky_texture =
             Texture::from_bytes(&device, &queue, sky_bytes, "sky.png").unwrap();
@@ -700,8 +695,16 @@ impl State {
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
                     blend: Some(wgpu::BlendState {
-                        color: wgpu::BlendComponent::REPLACE,
-                        alpha: wgpu::BlendComponent::REPLACE,
+                        color: wgpu::BlendComponent {
+                            operation: wgpu::BlendOperation::Add,
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            operation: wgpu::BlendOperation::Add,
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                        },
                     }),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],

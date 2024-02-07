@@ -24,8 +24,9 @@ fn main(@builtin(global_invocation_id) global_ix: vec3<u32>) {
         rayIdx
         );
 
-    let test = quadLightBuffer.data[0];
-    textureStore(outputTex, vec2<i32>(ix), pixelColor);
+    // TODO: investigate coord system mismatch
+    let flippedIdx = vec2<i32>(i32(scene.config.size.x) - i32(ix.x) - 1, i32(ix.y));
+    textureStore(outputTex, flippedIdx, pixelColor);
 }
 
 fn sample_scene(ray: Ray, maxDepth: u32, spp: u32, pixelSize: vec2<f32>, globalIdx: u32) -> vec4<f32> {
@@ -38,15 +39,16 @@ fn sample_scene(ray: Ray, maxDepth: u32, spp: u32, pixelSize: vec2<f32>, globalI
         let rng = vec2<f32>(hash_u32(seed * scene.config.seed.x), hash_u32(seed * scene.config.seed.y));
         var localColor = vec4<f32>(1.0, 1.0, 1.0, 1.0);
         var currentRay = get_offset_ray(ray, pixelSize, focusDistance, rng);
+        var hitGeometry = false;
 
         for (var depth = maxDepth; depth > 0u; depth = depth - 1u) {
 
             // Rays be bouncing
-            // let rec = hit_scene(currentRay);
             let rec = hit_bvh(currentRay);
 
             if (rec.t > 0.0) {
                 // Handle material interaction
+                hitGeometry = true;
                 var diffuseWeight = saturate(1.0 - rec.material.metallic);
                 let specularWeight = rec.material.specular / (rec.material.specular + diffuseWeight);
                 diffuseWeight = diffuseWeight * (1.0 - specularWeight);
@@ -74,8 +76,6 @@ fn sample_scene(ray: Ray, maxDepth: u32, spp: u32, pixelSize: vec2<f32>, globalI
                     // Sepcular -- GGX
                     let directWeight = 0.5;
                     let isDirect = rng.x < directWeight;
-
-                    // Indirect
                     let specularColor = vec4<f32>(1.0, 1.0, 1.0, 1.0) * rec.material.specular;
                     var f0: vec3<f32>;
                     if (isMetallic) {
@@ -115,12 +115,10 @@ fn sample_scene(ray: Ray, maxDepth: u32, spp: u32, pixelSize: vec2<f32>, globalI
                         currentRay = Ray(rec.p, reflect(currentRay.direction, ggx_indirect.direction));  
                     }
                 } else {
-                    // Diffuse
-
-                    // Direct lighting                        
+                    // Direct diffuse                  
                     let directColor = localColor * rec.material.diffuse * lightColor * lightWeight;
                                                               
-                    // Indirect lighting
+                    // Indirect diffuse
                     var offset = rec.p.xy;
                     let threshold = 0.10;
                     if (abs(1.0 - rec.normal.y) < threshold) {
@@ -136,6 +134,9 @@ fn sample_scene(ray: Ray, maxDepth: u32, spp: u32, pixelSize: vec2<f32>, globalI
                 let uv = vec2<f32>(atan2(currentRay.direction.z, currentRay.direction.x) / (PI * 2.0) + 0.5, -asin(currentRay.direction.y) / PI + 0.5);
                 let skyColor = textureSampleLevel(t_sky, s_sky, uv, 0.0);
                 localColor = localColor * skyColor * max(0.001, scene.config.sky_intensity);
+                if (!hitGeometry) {
+                    // localColor *= 0.0;
+                }
                 break;
             }
         }
@@ -210,7 +211,6 @@ fn hit_bvh(ray: Ray) -> HitRec {
             }
         }
     }
-
     return rec;
 }
 

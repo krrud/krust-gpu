@@ -50,16 +50,15 @@ fn hit_triangle(triangle: Triangle, ray: Ray) -> HitRec {
     
     if (t > EPSILON) {
         let p: vec3<f32> = point_at(ray, t);
-        let normal: vec3<f32> = normalize(cross(e1, e2));
+        let normal: vec3<f32> = normalize((1.0 - u - v) * triangle.na.xyz + u * triangle.nb.xyz + v * triangle.nc.xyz);
+        // let normal: vec3<f32> = normalize(cross(e1, e2));
         return HitRec(t, p, normal, triangle.material);
     }
     else {
         return NULL_HIT;
     }
 
-
 }
-
 
 
 // RAY AND CAMERA
@@ -126,12 +125,11 @@ fn random_unit_vector(rng: vec2<f32>) -> vec3<f32> {
 }
 
 fn random_in_unit_disk(rng: vec2<f32>) -> vec3<f32> {
-    loop {
-        var p = vec3<f32>(hash_f32(rng.x) * 2.0 - 1.0, hash_f32(rng.y) * 2.0 - 1.0, 0.0);
-        if (dot(p.xy, p.xy) < 1.0) {
-            return p;
-        }
-    }
+    let theta = 2.0 * PI * hash_f32(rng.x);
+    let r = sqrt(hash_f32(rng.y));
+    let x = r * cos(theta);
+    let y = r * sin(theta);
+    return vec3<f32>(x, y, 0.0);
 }
 
 fn random_on_quad(p: vec3<f32>, n: vec3<f32>, u: vec3<f32>, v: vec3<f32>, rng: vec2<f32>) -> vec3<f32> {

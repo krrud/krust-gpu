@@ -8,15 +8,28 @@ pub struct Triangle {
     a: [f32; 4],
     b: [f32; 4],
     c: [f32; 4],
+    na: [f32; 4],
+    nb: [f32; 4],
+    nc: [f32; 4],
     material: Material,
 }
 
 impl Triangle {
-    pub fn new(a: [f32; 3], b: [f32; 3], c: [f32; 3], material: Material) -> Self {
+    pub fn new(
+        a: [f32; 3], 
+        b: [f32; 3], 
+        c: [f32; 3], 
+        na: [f32; 3],
+        nb: [f32; 3],
+        nc: [f32; 3],
+        material: Material) -> Self {
         Self {
             a: [a[0], a[1], a[2], 0.0],
             b: [b[0], b[1], b[2], 0.0],
             c: [c[0], c[1], c[2], 0.0],
+            na: [na[0], na[1], na[2], 0.0],
+            nb: [nb[0], nb[1], nb[2], 0.0],
+            nc: [nc[0], nc[1], nc[2], 0.0],
             material,
         }
     }
