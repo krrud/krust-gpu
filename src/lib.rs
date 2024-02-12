@@ -50,7 +50,6 @@ pub struct State {
     size: winit::dpi::PhysicalSize<u32>,
     render_pipeline: wgpu::RenderPipeline,
     #[allow(dead_code)]
-    diffuse_texture: Texture,
     texture_bind_group: wgpu::BindGroup,
     camera: Camera,
     camera_controller: CameraController,
@@ -58,8 +57,14 @@ pub struct State {
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     window: Window,
-    trace_pipeline: wgpu::ComputePipeline,
-    trace_bind_group: wgpu::BindGroup,
+    direct_diffuse_pipeline: wgpu::ComputePipeline,
+    direct_diffuse_bind_group: wgpu::BindGroup,
+    indirect_diffuse_pipeline: wgpu::ComputePipeline,
+    indirect_diffuse_bind_group: wgpu::BindGroup,
+    direct_specular_pipeline: wgpu::ComputePipeline,
+    direct_specular_bind_group: wgpu::BindGroup,
+    indirect_specular_pipeline: wgpu::ComputePipeline,
+    indirect_specular_bind_group: wgpu::BindGroup,
     camera_ray_bind_group: wgpu::BindGroup,
     camera_ray_compute_pipeline: wgpu::ComputePipeline,
     camera_ray_uniform: RayBuffer,
@@ -158,7 +163,7 @@ impl State {
             Vector3::new(0.0, 0.0, 0.0),   // Aim
             [12.0, 12.0].into(),           // Size
             [1.0, 1.0, 1.0].into(),        // Color
-            29.0,                          // Intensity
+            300.0,                         // Intensity
         );
         lights.push(light1);
         let light_buffer = QuadLight::to_buffer(&lights, &device);
@@ -283,6 +288,9 @@ impl State {
             1, // samples
         );
 
+        let sky_bytes = include_bytes!("../assets/sky4.png");
+        let sky_texture = Texture::from_bytes(&device, &queue, sky_bytes, "sky.png").unwrap();
+
         let scene = Scene::from(render_config, camera_uniform, scene_objects);
         let scene_buffer = scene.to_buffer(&device);
 
@@ -315,9 +323,10 @@ impl State {
         // GLOBAL SHADER DATA
         //
         //
-        //
+        //        
         let shader_structs = include_str!("./shaders/structs.wgsl");
         let shader_functions = include_str!("./shaders/functions.wgsl");
+        let traversal_buffers = include_str!("./shaders/traversal_buffers.wgsl");
         let ggx = include_str!("./shaders/ggx.wgsl");
         let accumulation_array = PixelBuffer::new([size.width, size.height]);
         let accumulation_buffer = accumulation_array.to_buffer(&device);
@@ -328,7 +337,7 @@ impl State {
         //
         //
         let camera_ray_shader = include_str!("./shaders/compute_camera_rays.wgsl");
-        let combined_camera_ray_shader = format!("{}\n{}\n{}", shader_structs, shader_functions, camera_ray_shader);
+        let combined_camera_ray_shader = format!("{}\n{}", shader_structs, camera_ray_shader);
         let cs_camera_rays = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Camera Ray Shader"),
             source: wgpu::ShaderSource::Wgsl(combined_camera_ray_shader.into()),
@@ -392,23 +401,183 @@ impl State {
 
 
 
-        // SCENE TRAVERSAL COMPUTE PIPELINE
+        // DIRECT DIFFUSE COMPUTE PIPELINE
         //
         //
         //
-        let traversal_shader = include_str!("./shaders/compute_traversal.wgsl");
-        let combined_traversal_shader = format!("{}\n{}\n{}\n{}", shader_structs, shader_functions, ggx, traversal_shader);
-        let trace_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Traversal Shader"),
-            source: wgpu::ShaderSource::Wgsl(combined_traversal_shader.into()),
+        let direct_diffuse_shader = include_str!("./shaders/compute_direct_diffuse.wgsl");
+        let combined_direct_diffuse_shader = format!("{}\n{}\n{}\n{}", traversal_buffers, shader_structs, shader_functions, direct_diffuse_shader);
+        let direct_diffuse_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Direct Diffuse Shader"),
+            source: wgpu::ShaderSource::Wgsl(combined_direct_diffuse_shader.into()),
         });
 
-        let sky_bytes = include_bytes!("../assets/sky2.png");
-        
-        let sky_texture =
-            Texture::from_bytes(&device, &queue, sky_bytes, "sky.png").unwrap();
+        let direct_diffuse_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: Extent3d {
+                width: size.width,
+                height: size.height,
+                depth_or_array_layers: 1,
+            }, 
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });        
+        let direct_diffuse_view = direct_diffuse_texture.create_view(&Default::default());     
 
-        let trace_texture = device.create_texture(&wgpu::TextureDescriptor {
+        let direct_diffuse_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 5,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 6,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 7,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::StorageTexture {
+                            access: wgpu::StorageTextureAccess::WriteOnly,
+                            format: wgpu::TextureFormat::Rgba8Unorm,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                        count: None,
+                    },
+                ],
+        });
+
+        let direct_diffuse_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &direct_diffuse_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: scene_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: camera_ray_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: bvh_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: triangle_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: light_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(&sky_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::Sampler(&sky_texture.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: wgpu::BindingResource::TextureView(&direct_diffuse_view),
+                },
+            ],
+        });
+
+        let direct_diffuse_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
+                bind_group_layouts: &[&direct_diffuse_bind_group_layout],
+                push_constant_ranges: &[],
+        });
+
+        let direct_diffuse_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: None,
+            layout: Some(&direct_diffuse_pipeline_layout),
+            module: &direct_diffuse_module,
+            entry_point: "main",
+        });
+
+
+        // INDIRECT DIFFUSE COMPUTE PIPELINE
+        //
+        //
+        //
+        let indirect_diffuse_shader = include_str!("./shaders/compute_indirect_diffuse.wgsl");
+        let combined_indirect_diffuse_shader = format!("{}\n{}\n{}\n{}", traversal_buffers, shader_structs, shader_functions, indirect_diffuse_shader);
+        let indirect_diffuse_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Indirect Diffuse Shader"),
+            source: wgpu::ShaderSource::Wgsl(combined_indirect_diffuse_shader.into()),
+        });
+
+        let indirect_diffuse_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size: Extent3d {
                 width: size.width,
@@ -422,9 +591,9 @@ impl State {
             usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
-        let trace_view = trace_texture.create_view(&Default::default());     
+        let indirect_diffuse_view = indirect_diffuse_texture.create_view(&Default::default());     
 
-        let trace_bind_group_layout =
+        let indirect_diffuse_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: None,
                 entries: &[
@@ -448,18 +617,39 @@ impl State {
                         },
                         count: None,
                     },
+
                     wgpu::BindGroupLayoutEntry {
                         binding: 2,
                         visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::StorageTexture {
-                            access: wgpu::StorageTextureAccess::WriteOnly,
-                            format: wgpu::TextureFormat::Rgba8Unorm,
-                            view_dimension: wgpu::TextureViewDimension::D2,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
                         },
                         count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 3,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 5,
                         visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Texture {
                             multisampled: false,
@@ -469,57 +659,27 @@ impl State {
                         count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
-                        binding: 4,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                    // wgpu::BindGroupLayoutEntry {
-                    //     binding: 5,
-                    //     visibility: wgpu::ShaderStages::COMPUTE,
-                    //     ty: wgpu::BindingType::Buffer {
-                    //         ty: wgpu::BufferBindingType::Storage { read_only: true },
-                    //         has_dynamic_offset: false,
-                    //         min_binding_size: None,
-                    //     },
-                    //     count: None,
-                    // },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 5,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
                         binding: 6,
                         visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 7,
                         visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
+                        ty: wgpu::BindingType::StorageTexture {
+                            access: wgpu::StorageTextureAccess::WriteOnly,
+                            format: wgpu::TextureFormat::Rgba8Unorm,
+                            view_dimension: wgpu::TextureViewDimension::D2,
                         },
                         count: None,
                     },
                 ],
         });
 
-        let trace_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let indirect_diffuse_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
-            layout: &trace_bind_group_layout,
+            layout: &indirect_diffuse_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -531,50 +691,404 @@ impl State {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&trace_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&sky_texture.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::Sampler(&sky_texture.sampler),
-                },
-                // wgpu::BindGroupEntry {
-                //     binding: 5,
-                //     resource: sphere_buffer.as_entire_binding(),
-                // },
-                wgpu::BindGroupEntry {
-                    binding: 5,
                     resource: bvh_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 6,
+                    binding: 3,
                     resource: triangle_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 7,
+                    binding: 4,
                     resource: light_buffer.as_entire_binding(),
                 },
-
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(&sky_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::Sampler(&sky_texture.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: wgpu::BindingResource::TextureView(&indirect_diffuse_view),
+                },
             ],
         });
 
-        let trace_pipeline_layout =
+        let indirect_diffuse_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
-                bind_group_layouts: &[&trace_bind_group_layout],
+                bind_group_layouts: &[&indirect_diffuse_bind_group_layout],
                 push_constant_ranges: &[],
         });
 
-        let trace_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        let indirect_diffuse_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: None,
-            layout: Some(&trace_pipeline_layout),
-            module: &trace_module,
+            layout: Some(&indirect_diffuse_pipeline_layout),
+            module: &indirect_diffuse_module,
             entry_point: "main",
         });
 
+
+        // DIRECT SPECULAR COMPUTE PIPELINE
+        //
+        //
+        //
+        let direct_specular_shader = include_str!("./shaders/compute_direct_specular.wgsl");
+        let combined_direct_specular_shader = format!("{}\n{}\n{}\n{}\n{}", traversal_buffers, shader_structs, shader_functions, ggx, direct_specular_shader);
+        let direct_specular_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Direct Specular Shader"),
+            source: wgpu::ShaderSource::Wgsl(combined_direct_specular_shader.into()),
+        });
+
+        let direct_specular_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: Extent3d {
+                width: size.width,
+                height: size.height,
+                depth_or_array_layers: 1,
+            }, 
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let direct_specular_view = direct_specular_texture.create_view(&Default::default());     
+
+        let direct_specular_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 5,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 6,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 7,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::StorageTexture {
+                            access: wgpu::StorageTextureAccess::WriteOnly,
+                            format: wgpu::TextureFormat::Rgba8Unorm,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                        count: None,
+                    },
+                ],
+        });
+
+        let direct_specular_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &direct_specular_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: scene_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: camera_ray_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: bvh_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: triangle_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: light_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(&sky_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::Sampler(&sky_texture.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: wgpu::BindingResource::TextureView(&direct_specular_view),
+                },
+            ],
+        });
+
+        let direct_specular_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
+                bind_group_layouts: &[&direct_specular_bind_group_layout],
+                push_constant_ranges: &[],
+        });
+
+        let direct_specular_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: None,
+            layout: Some(&direct_specular_pipeline_layout),
+            module: &direct_specular_module,
+            entry_point: "main",
+        });
+
+
+        // INDIRECT SPECULAR COMPUTE PIPELINE
+        //
+        //
+        //
+        let indirect_specular_shader = include_str!("./shaders/compute_indirect_specular.wgsl");
+        let combined_indirect_specular_shader = format!("{}\n{}\n{}\n{}\n{}", traversal_buffers, shader_structs, shader_functions, ggx, indirect_specular_shader);
+        let indirect_specular_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Inirect Specular Shader"),
+            source: wgpu::ShaderSource::Wgsl(combined_indirect_specular_shader.into()),
+        });
+
+        let indirect_specular_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: Extent3d {
+                width: size.width,
+                height: size.height,
+                depth_or_array_layers: 1,
+            }, 
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let indirect_specular_view = indirect_specular_texture.create_view(&Default::default());   
+        
+        let sky_render_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: Extent3d {
+                width: size.width,
+                height: size.height,
+                depth_or_array_layers: 1,
+            }, 
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let sky_render_view = sky_render_texture.create_view(&Default::default());  
+
+        let indirect_specular_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 5,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 6,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 7,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::StorageTexture {
+                            access: wgpu::StorageTextureAccess::WriteOnly,
+                            format: wgpu::TextureFormat::Rgba8Unorm,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 8,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::StorageTexture {
+                            access: wgpu::StorageTextureAccess::WriteOnly,
+                            format: wgpu::TextureFormat::Rgba8Unorm,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                        count: None,
+                    },
+                ],
+        });
+
+        let indirect_specular_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &indirect_specular_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: scene_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: camera_ray_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: bvh_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: triangle_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: light_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(&sky_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::Sampler(&sky_texture.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: wgpu::BindingResource::TextureView(&indirect_specular_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 8,
+                    resource: wgpu::BindingResource::TextureView(&sky_render_view),
+                },
+            ],
+        });
+
+        let indirect_specular_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
+                bind_group_layouts: &[&indirect_specular_bind_group_layout],
+                push_constant_ranges: &[],
+        });
+
+        let indirect_specular_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: None,
+            layout: Some(&indirect_specular_pipeline_layout),
+            module: &indirect_specular_module,
+            entry_point: "main",
+        });
 
 
         // RENDER PIPELINE
@@ -582,7 +1096,7 @@ impl State {
         //
         //
         let render_shader = include_str!("./shaders/shader.wgsl");
-        let combined_render_shader = format!("{}\n{}\n{}", shader_structs, shader_functions, render_shader);
+        let combined_render_shader = format!("{}\n{}", shader_structs, render_shader);
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
@@ -590,41 +1104,14 @@ impl State {
         });
 
         let diffuse_bytes = include_bytes!("../assets/happy-tree.png");
-        
         let diffuse_texture =
-            Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png").unwrap();
+        Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png").unwrap();
 
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Storage { read_only: false },
@@ -634,12 +1121,68 @@ impl State {
                         count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
-                        binding: 4,
+                        binding: 1,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Storage { read_only: true },
                             has_dynamic_offset: false,
                             min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 5,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 6,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 7,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
                         },
                         count: None,
                     },
@@ -652,23 +1195,35 @@ impl State {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&trace_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
                     resource: accumulation_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 4,
+                    binding: 1,
                     resource: scene_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&direct_diffuse_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&indirect_diffuse_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(&direct_specular_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(&indirect_specular_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: wgpu::BindingResource::TextureView(&sky_render_view),
                 },
             ],
             label: Some("Texture Bind Group"),
@@ -735,7 +1290,6 @@ impl State {
             config,
             size,
             render_pipeline,
-            diffuse_texture,
             texture_bind_group,
             camera,
             camera_controller,
@@ -743,8 +1297,14 @@ impl State {
             camera_bind_group,
             camera_uniform,
             window,
-            trace_pipeline,
-            trace_bind_group,
+            direct_diffuse_pipeline,
+            direct_diffuse_bind_group,
+            indirect_diffuse_pipeline,
+            indirect_diffuse_bind_group,
+            direct_specular_pipeline,
+            direct_specular_bind_group,
+            indirect_specular_pipeline,
+            indirect_specular_bind_group,
             camera_ray_bind_group,
             camera_ray_compute_pipeline,
             camera_ray_uniform,
@@ -844,11 +1404,35 @@ impl State {
         encoder.insert_debug_marker("Ensure camera rays are generated");
         
         {
-            // Trace indirect rays
-            let mut trace_compute_pass = encoder.begin_compute_pass(&Default::default());
-            trace_compute_pass.set_pipeline(&self.trace_pipeline);
-            trace_compute_pass.set_bind_group(0, &self.trace_bind_group, &[]);
-            trace_compute_pass.dispatch_workgroups(self.size.width / 16, self.size.height / 16, 1);
+            // Direct diffuse
+            let mut direct_diffuse_compute_pass = encoder.begin_compute_pass(&Default::default());
+            direct_diffuse_compute_pass.set_pipeline(&self.direct_diffuse_pipeline);
+            direct_diffuse_compute_pass.set_bind_group(0, &self.direct_diffuse_bind_group, &[]);
+            direct_diffuse_compute_pass.dispatch_workgroups(self.size.width / 16, self.size.height / 16, 1);
+        }
+
+        {
+            // Indirect diffuse
+            let mut indirect_diffuse_compute_pass = encoder.begin_compute_pass(&Default::default());
+            indirect_diffuse_compute_pass.set_pipeline(&self.indirect_diffuse_pipeline);
+            indirect_diffuse_compute_pass.set_bind_group(0, &self.indirect_diffuse_bind_group, &[]);
+            indirect_diffuse_compute_pass.dispatch_workgroups(self.size.width / 16, self.size.height / 16, 1);
+        }
+
+        {
+            // Direct specular
+            let mut direct_specular_compute_pass = encoder.begin_compute_pass(&Default::default());
+            direct_specular_compute_pass.set_pipeline(&self.direct_specular_pipeline);
+            direct_specular_compute_pass.set_bind_group(0, &self.direct_specular_bind_group, &[]);
+            direct_specular_compute_pass.dispatch_workgroups(self.size.width / 16, self.size.height / 16, 1);
+        }
+
+        {
+            // Inirect specular
+            let mut indirect_specular_compute_pass = encoder.begin_compute_pass(&Default::default());
+            indirect_specular_compute_pass.set_pipeline(&self.indirect_specular_pipeline);
+            indirect_specular_compute_pass.set_bind_group(0, &self.indirect_specular_bind_group, &[]);
+            indirect_specular_compute_pass.dispatch_workgroups(self.size.width / 16, self.size.height / 16, 1);
         }
 
         {

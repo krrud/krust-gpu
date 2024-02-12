@@ -18,6 +18,13 @@ impl AABB {
         }
     }
 
+    pub fn empty() -> Self {
+        AABB {
+            min: [f32::INFINITY; 4],
+            max: [f32::NEG_INFINITY; 4],
+        }
+    }
+
     pub fn surrounding_box(&self, other: &AABB) -> AABB {
         let min = [
             self.min[0].min(other.min[0]),
@@ -32,5 +39,12 @@ impl AABB {
             0.0,
         ];
         AABB {min, max}
+    }
+
+    pub fn surface_area(&self) -> f32 {
+        let x = self.max[0] - self.min[0];
+        let y = self.max[1] - self.min[1];
+        let z = self.max[2] - self.min[2];
+        2.0 * (x * y + y * z + z * x)
     }
 }

@@ -91,17 +91,35 @@ impl BVH {
 }
 
 fn box_compare(a: &Triangle, b: &Triangle, axis: usize) -> Ordering {
-    let box_a = a.bounding_box(0.0, 0.0);
-    let box_b = b.bounding_box(0.0, 0.0);
-    box_a.min[axis].partial_cmp(&box_b.min[axis]).unwrap_or(Ordering::Equal)
+    a.bounding_box(0.0, 0.0).min[axis].partial_cmp(&b.bounding_box(0.0, 0.0).min[axis]).unwrap_or(Ordering::Equal)
 }
 
 fn choose_axis(primitives: &[Triangle], start: usize, end: usize) -> usize {
-    let centroid_positions: Vec<_> = (start..end).map(|i| primitives[i].centroid()).collect();
-    let mut variances = [0.0; 3];
-    for axis in 0..3 {
-        let mean = centroid_positions.iter().map(|p| p[axis]).sum::<f32>() / (end - start) as f32;
-        variances[axis] = centroid_positions.iter().map(|p| (p[axis] - mean).powi(2)).sum::<f32>();
+    let mut centroid_sums = [0.0; 3];
+    let mut centroid_sums_squared = [0.0; 3];
+
+    for i in start..end {
+        let centroid = primitives[i].centroid();
+        for axis in 0..3 {
+            centroid_sums[axis] += centroid[axis];
+            centroid_sums_squared[axis] += centroid[axis].powi(2);
+        }
     }
-    variances.iter().enumerate().max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap()).unwrap().0
+
+    let num_primitives = end - start;
+
+    let mut max_variance = 0.0;
+    let mut max_variance_axis = 0;
+
+    for axis in 0..3 {
+        let mean = centroid_sums[axis] / num_primitives as f32;
+        let variance = centroid_sums_squared[axis] / num_primitives as f32 - mean.powi(2);
+        
+        if variance > max_variance {
+            max_variance = variance;
+            max_variance_axis = axis;
+        }
+    }
+
+    max_variance_axis
 }

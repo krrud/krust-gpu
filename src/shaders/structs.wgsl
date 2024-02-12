@@ -140,3 +140,8 @@ struct BVHBuffer {
     root: i32,
     nodes: array<BVHNode>,
 }
+
+struct LightSample {
+    color: vec4<f32>,
+    dir: vec3<f32>,
+}

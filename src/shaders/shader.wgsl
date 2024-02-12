@@ -31,27 +31,33 @@ fn vs_main(
 }
 
 // Fragment shader
-@group(0) @binding(0) var t_diffuse: texture_2d<f32>;
-@group(0) @binding(1) var s_trace: sampler;
-@group(0) @binding(2) var t_trace: texture_2d<f32>;
-@group(0) @binding(3) var<storage, read_write> accumulation_buffer: PixelBuffer;
-@group(0) @binding(4) var<storage, read> scene: Scene;
-
+@group(0) @binding(0) var<storage, read_write> accumulation_buffer: PixelBuffer;
+@group(0) @binding(1) var<storage, read> scene: Scene;
+@group(0) @binding(2) var texture_sampler: sampler;
+@group(0) @binding(3) var direct_diffuse: texture_2d<f32>;
+@group(0) @binding(4) var indirect_diffuse: texture_2d<f32>;
+@group(0) @binding(5) var direct_specular: texture_2d<f32>;
+@group(0) @binding(6) var indirect_specular: texture_2d<f32>;
+@group(0) @binding(7) var sky: texture_2d<f32>;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let index: u32 = u32(in.clip_position.y) * scene.config.size.x + u32(in.clip_position.x);
-    let trace_color: vec4<f32> = textureSample(t_trace, s_trace, in.tex_coords);
-    let accumulated_color: vec4<f32> = trace_color + accumulation_buffer.data[index];
-    var composite: vec4<f32> = accumulated_color / f32(scene.config.count);
-
+    let direct_diffuse_color: vec4<f32> = textureSample(direct_diffuse, texture_sampler, in.tex_coords);
+    let indirect_diffuse_color: vec4<f32> = textureSample(indirect_diffuse, texture_sampler, in.tex_coords);
+    let direct_specular_color: vec4<f32> = textureSample(direct_specular, texture_sampler, in.tex_coords);
+    let indirect_specular_color: vec4<f32> = textureSample(indirect_specular, texture_sampler, in.tex_coords);
+    let sky_color: vec4<f32> = textureSample(sky, texture_sampler, in.tex_coords);
+    let composite = direct_diffuse_color + indirect_diffuse_color + direct_specular_color + indirect_specular_color + sky_color;
+    let accumulated_color: vec4<f32> = composite + accumulation_buffer.data[index];
     accumulation_buffer.data[index] = accumulated_color;
 
     // Gamma correction
+    var out: vec4<f32> = accumulated_color / f32(scene.config.count);
     var gamma: f32 = 2.2; 
-    composite.r = pow(composite.r, 1.0 / gamma);
-    composite.g = pow(composite.g, 1.0 / gamma);
-    composite.b = pow(composite.b, 1.0 / gamma);
+    out.r = pow(out.r, 1.0 / gamma);
+    out.g = pow(out.g, 1.0 / gamma);
+    out.b = pow(out.b, 1.0 / gamma);
 
-    return composite;
+    return out;
 }

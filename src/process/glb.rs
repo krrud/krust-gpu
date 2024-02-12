@@ -93,26 +93,42 @@ pub fn load_glb(data: &[u8]) -> GLBScene {
         let base_color = pbr.base_color_factor();
         let metallic = pbr.metallic_factor();
         let roughness = pbr.roughness_factor();
-        let ior = material.ior();
+        let mut ior = 1.5;
+        let mut specular = 1.0;
+        let mut refract = 0.0;
+
+        if let Some(val) = material.ior() {
+            ior = val;
+        };
+        if let Some(spec) = material.specular() {
+            specular = spec.specular_factor();
+        };
+        if let Some(transmission) = material.transmission() {
+            refract = transmission.transmission_factor();
+        };
+
+        log::warn!("ior: {:?}", ior);
+        log::warn!("specular: {:?}", specular);
+        log::warn!("refract: {:?}", refract);
 
         // TODO: handle textures
         let mut base_color_texture_idx = None;
         let mut met_rough_texture_idx = None;
-
         if let Some(base_color_texture) = pbr.base_color_texture() {
             base_color_texture_idx = Some(base_color_texture.texture().index());
-        }
+        };
 
         if let Some(met_rough_texture) = pbr.metallic_roughness_texture() {
             met_rough_texture_idx = Some(met_rough_texture.texture().index());
-        }
+        };
+
         let material = Material::new(
             base_color,
-            1.0,
+            specular,
             roughness,
             metallic,   
-            0.0,
-            1.45,
+            refract,
+            ior,
         );
         scene.materials.push(material);
     }

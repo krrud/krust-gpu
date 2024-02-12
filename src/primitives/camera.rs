@@ -188,7 +188,7 @@ impl CameraController {
                 let last_x = last_x as f32;
                 let last_y = last_y as f32;
                 if let Some((initial_x, initial_y)) = self.initial_mouse_position {
-                    let sensitivity = 0.15;  
+                    let sensitivity = 0.25;  
                     let threshold = 0.00;      
                     let delta_x = initial_x - last_x;
                     let delta_y = initial_y - last_y;
