@@ -11,7 +11,8 @@ fn hit_sphere(sphere: Sphere, ray: Ray) -> HitRec {
         if t > 0.0 {
             let p: vec3<f32> = point_at(ray, t);
             let normal: vec3<f32> = (p - sphere.center) / sphere.radius;
-            return HitRec(t, p, normal, sphere.material);
+            let frontface = dot(ray.direction, normal) < 0.0;
+            return HitRec(t, p, normal, sphere.material, frontface);
         }    
     }
 
@@ -47,13 +48,16 @@ fn hit_triangle(triangle: Triangle, ray: Ray) -> HitRec {
     
     if (t > EPSILON) {
         let p: vec3<f32> = point_at(ray, t);
-        let normal: vec3<f32> = normalize((1.0 - u - v) * triangle.na.xyz + u * triangle.nb.xyz + v * triangle.nc.xyz);
-        return HitRec(t, p, normal, triangle.material);
+        var normal: vec3<f32> = normalize((1.0 - u - v) * triangle.na.xyz + u * triangle.nb.xyz + v * triangle.nc.xyz);
+        let frontface = dot(ray.direction, normal) < 0.0;
+        if (!frontface) {
+            normal = -normal;
+        }
+        return HitRec(t, p, normal, materialBuffer.data[triangle.material], frontface);
     }
     else {
         return NULL_HIT;
     }
-
 }
 
 fn hit_aabb(ray: Ray, box: AABB) -> bool {
@@ -113,7 +117,7 @@ fn hit_aabb(ray: Ray, box: AABB) -> bool {
 
 fn hit_bvh(ray: Ray) -> HitRec {
     var rec: HitRec = NULL_HIT;
-    var stack: array<i32, 64>;
+    var stack: array<i32, 128>;
     var stack_top: i32 = 0;
     stack[stack_top] = bvhBuffer.root;
 
@@ -226,23 +230,23 @@ fn schlick(cosine: f32, ior: f32) -> f32 {
     return f0 + (1.0 - f0) * pow(1.0 - cosine, 5.0);
 }
 
-fn ambient_occlusion(rec: HitRec, samples: i32, rng: vec2<f32>) -> vec4<f32> {
-    var occlusion = 0.0;
-    for (var i = 0; i < samples; i = i + 1) {
-        let sampleDir = cosine_weighted_hemisphere(rec, rng);
-        let sampleRay = Ray(rec.p, sampleDir);
-        let sampleRec = hit_bvh(sampleRay);
-        if (sampleRec.t > 0.0) {
-            occlusion += 1.0;
-        }
-    }
-    occlusion = occlusion / f32(samples);
-    occlusion = 1.0 - occlusion;
-    return vec4<f32>(occlusion, occlusion, occlusion, 1.0);
-}
+// fn ambient_occlusion(rec: HitRec, samples: i32, rng: vec2<f32>) -> vec4<f32> {
+//     var occlusion = 0.0;
+//     for (var i = 0; i < samples; i = i + 1) {
+//         let sampleDir = cosine_weighted_hemisphere(rec, rng);
+//         let sampleRay = Ray(rec.p, sampleDir);
+//         let sampleRec = hit_bvh(sampleRay);
+//         if (sampleRec.t > 0.0) {
+//             occlusion += 1.0;
+//         }
+//     }
+//     occlusion = occlusion / f32(samples);
+//     occlusion = 1.0 - occlusion;
+//     return vec4<f32>(occlusion, occlusion, occlusion, 1.0);
+// }
 
-fn cosine_weighted_hemisphere(rec: HitRec, rng: vec2<f32>) -> vec3<f32> {
-    let phi = 2.0 * PI * rng.x;
+fn cosine_weighted_hemisphere(rec: HitRec, rng: vec2<f32>) -> CosineDiffuse {
+    let phi = TWO_PI * rng.x;
     let cosTheta = sqrt(1.0 - rng.y);
     let sinTheta = sqrt(rng.y);
 
@@ -253,7 +257,10 @@ fn cosine_weighted_hemisphere(rec: HitRec, rng: vec2<f32>) -> vec3<f32> {
     let worldTangent = normalize(cross(worldUp, worldNormal));
     let worldBitangent = normalize(cross(worldNormal, worldTangent));
 
-    return normalize(worldTangent * localDir.x + worldNormal * localDir.y + worldBitangent * localDir.z);
+    let direction = normalize(worldTangent * localDir.x + worldNormal * localDir.y + worldBitangent * localDir.z);
+    let pdf = abs(dot(direction, rec.normal)) / PI;
+
+    return CosineDiffuse(direction, pdf);
 }
 
 fn sample_quad_light(light: QuadLight, rec: HitRec, rng: vec2<f32>) -> LightSample {
@@ -265,11 +272,11 @@ fn sample_quad_light(light: QuadLight, rec: HitRec, rng: vec2<f32>) -> LightSamp
     let lightRay = Ray(rec.p, toLight);
     let lightRec = hit_bvh(lightRay);
     var lightShadow = 0.0;
-    if (lightRec.t <= 0.0 || lightRec.t >= lightDist) {
-        lightShadow = lightShadow + 1.0;
+    if (lightRec.t > 0.0 && lightRec.t < lightDist){
+        return LightSample(vec4<f32>(0.0, 0.0, 0.0, 0.0), toLight);
     }
     let lightPdf = lightDist * lightDist / (lightSize);
-    let lightWeight = max(dot(rec.normal.xyz, toLight), 0.0) * lightShadow;
+    let lightWeight = max(dot(rec.normal.xyz, toLight), 0.0);
     let lightColor = vec4<f32>(light.color * light.intensity / (lightDist * lightDist), 0.0);
     return LightSample(lightColor * lightWeight, toLight);
 }

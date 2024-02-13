@@ -1,5 +1,5 @@
 // Scene traversal shader
-@group(0) @binding(7) var outputTex: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(8) var outputTex: texture_storage_2d<rgba8unorm, write>;
 
 @compute @workgroup_size(16, 16)
 fn main(@builtin(global_invocation_id) global_ix: vec3<u32>) {
@@ -121,7 +121,7 @@ fn sample_scene(ray: Ray, maxDepth: u32, spp: u32, pixelSize: vec2<f32>, globalI
             if (directDiffRec.t > 0.0 && !isMetallic) { 
                 let lightSample = sample_quad_light(quadLightBuffer.data[0], directDiffRec, rng);             
                 directDiffColor *= directDiffRec.material.diffuse * lightSample.color;  
-                directDiffRay = Ray(directDiffRec.p, cosine_weighted_hemisphere(directDiffRec, rng));   
+                directDiffRay = Ray(directDiffRec.p, cosine_weighted_hemisphere(directDiffRec, rng).dir);   
             } else if (directDiffActive) {
                 if (depth == maxDepth) {
                     directDiffColor *= 0.0;
@@ -133,7 +133,7 @@ fn sample_scene(ray: Ray, maxDepth: u32, spp: u32, pixelSize: vec2<f32>, globalI
             isMetallic = indirectDiffRec.material.metallic > rng.x;
             if (indirectDiffRec.t > 0.0 && !isMetallic && indirectDiffActive) {
                 indirectDiffColor *= indirectDiffRec.material.diffuse;
-                indirectDiffRay = Ray(indirectDiffRec.p, cosine_weighted_hemisphere(indirectDiffRec, rng));                   
+                indirectDiffRay = Ray(indirectDiffRec.p, cosine_weighted_hemisphere(indirectDiffRec, rng).dir);                   
             } else if (indirectDiffActive) {
                 if (depth == maxDepth) {
                     indirectDiffColor *= 0.0;
@@ -143,6 +143,98 @@ fn sample_scene(ray: Ray, maxDepth: u32, spp: u32, pixelSize: vec2<f32>, globalI
                 indirectDiffActive = false;
             }
             compositeColor = directSpecColor + indirectSpecColor + directDiffColor + indirectDiffColor + skyColor;                
+        }
+        outColor += compositeColor;
+    }
+    outColor /= vec4<f32>(f32(spp));
+
+    return outColor;
+}
+
+fn sample_scene_alt(ray: Ray, maxDepth: u32, spp: u32, pixelSize: vec2<f32>, globalIdx: u32) -> vec4<f32> {
+    var outColor = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    let focusDistance: f32 = length(ray.origin);
+
+    for (var sampleIdx = 0u; sampleIdx < spp; sampleIdx = sampleIdx + 1u) {
+        let seed = sampleIdx * globalIdx + sampleIdx + 999u * globalIdx;
+        let rng = vec2<f32>(hash_u32(seed * scene.config.seed.x), hash_u32(seed * scene.config.seed.y));
+
+        var compositeColor = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+        var rayColor = compositeColor;
+        var skyColor = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+
+        var ray = get_strat_offset_ray(ray, pixelSize, focusDistance, rng, scene.config.count);
+        var rayActive = true;
+        var primaryHitMetal = false;   
+
+        for (var depth = maxDepth; depth > 0u; depth = depth - 1u) {
+            // Rays be bouncing
+            let rec = hit_bvh(ray);
+
+            if (rec.t > 0.0) {
+                let isMetallic = rec.material.metallic > rng.x;
+                var color = vec4<f32>(1.0, 1.0, 1.0, 1.0) * rec.material.specular;
+                var f0: vec3<f32>;
+                if (isMetallic) {                     
+                    color *= rec.material.diffuse;
+                    f0 = vec3<f32>(0.8, 0.8, 0.8);
+                } else {                     
+                    f0 = vec3<f32>(pow((1.0 - rec.material.ior) / (1.0 + rec.material.ior), 2.0));
+                }
+
+                let lightSample = sample_quad_light(quadLightBuffer.data[0], rec, rng);      
+                let ggx = ggx_direct(
+                    rec.normal, 
+                    -ray.direction, 
+                    lightSample.dir, 
+                    rec.material.roughness, 
+                    f0
+                );
+                rayColor = color * ggx.weight * lightSample.color;
+                ray = Ray(rec.p, lightSample.dir);                
+
+
+                // Direct diffuse
+                if (!isMetallic) { 
+                    let lightSample = sample_quad_light(quadLightBuffer.data[0], rec, rng);             
+                    rayColor += rec.material.diffuse * lightSample.color;  
+                    ray = Ray(rec.p, cosine_weighted_hemisphere(rec, rng).dir);   
+                }
+
+                // Indirect lighting
+                let ggxIndirect = ggx_indirect(
+                    rec.normal, 
+                    -ray.direction, 
+                    rec.material.roughness, 
+                    f0,
+                    rng
+                );    
+                rayColor += color * ggxIndirect.weight;
+                ray = Ray(rec.p, reflect(ray.direction, ggxIndirect.direction));
+
+                // Indirect diffuse
+                if (!isMetallic) {
+                    rayColor += rec.material.diffuse;
+                    ray = Ray(rec.p, cosine_weighted_hemisphere(rec, rng).dir);                   
+                }
+            } else if (rayActive) {
+                if (depth == maxDepth) {
+                    rayColor *= 0.0;
+                }
+                rayActive = false; 
+            }
+
+            if (!rayActive) {
+                let skySample = sample_sky(ray, scene.config.sky_intensity);
+                if (depth == maxDepth) {
+                    skyColor += skySample;
+                    rayColor *= 0.0;
+                } else {
+                    rayColor *= skySample;     
+                }                              
+            }
+                
+            compositeColor = rayColor;                
         }
         outColor += compositeColor;
     }

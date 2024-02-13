@@ -42,12 +42,15 @@ fn vs_main(
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    // Extract
     let index: u32 = u32(in.clip_position.y) * scene.config.size.x + u32(in.clip_position.x);
     let direct_diffuse_color: vec4<f32> = textureSample(direct_diffuse, texture_sampler, in.tex_coords);
     let indirect_diffuse_color: vec4<f32> = textureSample(indirect_diffuse, texture_sampler, in.tex_coords);
     let direct_specular_color: vec4<f32> = textureSample(direct_specular, texture_sampler, in.tex_coords);
     let indirect_specular_color: vec4<f32> = textureSample(indirect_specular, texture_sampler, in.tex_coords);
     let sky_color: vec4<f32> = textureSample(sky, texture_sampler, in.tex_coords);
+
+    // Composite
     let composite = direct_diffuse_color + indirect_diffuse_color + direct_specular_color + indirect_specular_color + sky_color;
     let accumulated_color: vec4<f32> = composite + accumulation_buffer.data[index];
     accumulation_buffer.data[index] = accumulated_color;

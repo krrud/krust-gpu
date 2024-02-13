@@ -11,7 +11,8 @@ pub struct Triangle {
     na: [f32; 4],
     nb: [f32; 4],
     nc: [f32; 4],
-    material: Material,
+    material: u32,
+    _padding: [u32; 3],
 }
 
 impl Triangle {
@@ -22,7 +23,7 @@ impl Triangle {
         na: [f32; 3],
         nb: [f32; 3],
         nc: [f32; 3],
-        material: Material) -> Self {
+        material: u32) -> Self {
         Self {
             a: [a[0], a[1], a[2], 0.0],
             b: [b[0], b[1], b[2], 0.0],
@@ -31,6 +32,7 @@ impl Triangle {
             nb: [nb[0], nb[1], nb[2], 0.0],
             nc: [nc[0], nc[1], nc[2], 0.0],
             material,
+            _padding: [0; 3],
         }
     }
 

@@ -234,6 +234,7 @@ impl State {
         let glb_bytes = include_bytes!("../assets/test.glb");
         let glb = load_glb(glb_bytes);
         let mut scene_triangles: Vec<Triangle> = vec![];
+        let mut scene_materials: Vec<Material> = vec![];
         for mesh in glb.meshes() {
             for chunk in mesh.indices.chunks(3) {
                 let tri = Triangle::new(
@@ -243,10 +244,14 @@ impl State {
                     mesh.normals[chunk[0] as usize],
                     mesh.normals[chunk[1] as usize],
                     mesh.normals[chunk[2] as usize],
-                    glb.materials()[mesh.material_index],
+                    mesh.material_index as u32,
                 );
                 scene_triangles.push(tri);
             }
+        }
+
+        for material in glb.materials() {
+            scene_materials.push(*material);
         }
 
         let bvh = BVH::new(&mut scene_triangles, 42069);
@@ -256,6 +261,13 @@ impl State {
         let triangle_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Triangle Buffer"),
             contents: &triangle_bytes,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let material_bytes = bytemuck::cast_slice(&scene_materials);
+        let material_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Material Buffer"),
+            contents: &material_bytes,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -284,11 +296,11 @@ impl State {
 
         let render_config = RenderConfig::new(
             size.into(), // pixel dimensions
-            8, // ray depth
+            4, // ray depth
             1, // samples
         );
 
-        let sky_bytes = include_bytes!("../assets/sky4.png");
+        let sky_bytes = include_bytes!("../assets/sky7.png");
         let sky_texture = Texture::from_bytes(&device, &queue, sky_bytes, "sky.png").unwrap();
 
         let scene = Scene::from(render_config, camera_uniform, scene_objects);
@@ -486,6 +498,16 @@ impl State {
                     wgpu::BindGroupLayoutEntry {
                         binding: 5,
                         visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 6,
+                        visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Texture {
                             multisampled: false,
                             view_dimension: wgpu::TextureViewDimension::D2,
@@ -494,13 +516,13 @@ impl State {
                         count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
-                        binding: 6,
+                        binding: 7,
                         visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
-                        binding: 7,
+                        binding: 8,
                         visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::StorageTexture {
                             access: wgpu::StorageTextureAccess::WriteOnly,
@@ -530,22 +552,26 @@ impl State {
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: triangle_buffer.as_entire_binding(),
+                    resource: material_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
-                    resource: light_buffer.as_entire_binding(),
+                    resource: triangle_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 5,
-                    resource: wgpu::BindingResource::TextureView(&sky_texture.view),
+                    resource: light_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 6,
-                    resource: wgpu::BindingResource::Sampler(&sky_texture.sampler),
+                    resource: wgpu::BindingResource::TextureView(&sky_texture.view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 7,
+                    resource: wgpu::BindingResource::Sampler(&sky_texture.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 8,
                     resource: wgpu::BindingResource::TextureView(&direct_diffuse_view),
                 },
             ],
@@ -651,6 +677,16 @@ impl State {
                     wgpu::BindGroupLayoutEntry {
                         binding: 5,
                         visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 6,
+                        visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Texture {
                             multisampled: false,
                             view_dimension: wgpu::TextureViewDimension::D2,
@@ -659,13 +695,13 @@ impl State {
                         count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
-                        binding: 6,
+                        binding: 7,
                         visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
-                        binding: 7,
+                        binding: 8,
                         visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::StorageTexture {
                             access: wgpu::StorageTextureAccess::WriteOnly,
@@ -695,22 +731,26 @@ impl State {
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: triangle_buffer.as_entire_binding(),
+                    resource: material_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
-                    resource: light_buffer.as_entire_binding(),
+                    resource: triangle_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 5,
-                    resource: wgpu::BindingResource::TextureView(&sky_texture.view),
+                    resource: light_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 6,
-                    resource: wgpu::BindingResource::Sampler(&sky_texture.sampler),
+                    resource: wgpu::BindingResource::TextureView(&sky_texture.view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 7,
+                    resource: wgpu::BindingResource::Sampler(&sky_texture.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 8,
                     resource: wgpu::BindingResource::TextureView(&indirect_diffuse_view),
                 },
             ],
@@ -816,6 +856,16 @@ impl State {
                     wgpu::BindGroupLayoutEntry {
                         binding: 5,
                         visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 6,
+                        visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Texture {
                             multisampled: false,
                             view_dimension: wgpu::TextureViewDimension::D2,
@@ -824,13 +874,13 @@ impl State {
                         count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
-                        binding: 6,
+                        binding: 7,
                         visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
-                        binding: 7,
+                        binding: 8,
                         visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::StorageTexture {
                             access: wgpu::StorageTextureAccess::WriteOnly,
@@ -860,22 +910,26 @@ impl State {
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: triangle_buffer.as_entire_binding(),
+                    resource: material_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
-                    resource: light_buffer.as_entire_binding(),
+                    resource: triangle_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 5,
-                    resource: wgpu::BindingResource::TextureView(&sky_texture.view),
+                    resource: light_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 6,
-                    resource: wgpu::BindingResource::Sampler(&sky_texture.sampler),
+                    resource: wgpu::BindingResource::TextureView(&sky_texture.view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 7,
+                    resource: wgpu::BindingResource::Sampler(&sky_texture.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 8,
                     resource: wgpu::BindingResource::TextureView(&direct_specular_view),
                 },
             ],
@@ -997,6 +1051,16 @@ impl State {
                     wgpu::BindGroupLayoutEntry {
                         binding: 5,
                         visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 6,
+                        visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Texture {
                             multisampled: false,
                             view_dimension: wgpu::TextureViewDimension::D2,
@@ -1005,13 +1069,13 @@ impl State {
                         count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
-                        binding: 6,
+                        binding: 7,
                         visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
-                        binding: 7,
+                        binding: 8,
                         visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::StorageTexture {
                             access: wgpu::StorageTextureAccess::WriteOnly,
@@ -1021,7 +1085,7 @@ impl State {
                         count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
-                        binding: 8,
+                        binding: 9,
                         visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::StorageTexture {
                             access: wgpu::StorageTextureAccess::WriteOnly,
@@ -1051,26 +1115,30 @@ impl State {
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: triangle_buffer.as_entire_binding(),
+                    resource: material_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
-                    resource: light_buffer.as_entire_binding(),
+                    resource: triangle_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 5,
-                    resource: wgpu::BindingResource::TextureView(&sky_texture.view),
+                    resource: light_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 6,
-                    resource: wgpu::BindingResource::Sampler(&sky_texture.sampler),
+                    resource: wgpu::BindingResource::TextureView(&sky_texture.view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 7,
-                    resource: wgpu::BindingResource::TextureView(&indirect_specular_view),
+                    resource: wgpu::BindingResource::Sampler(&sky_texture.sampler),
                 },
                 wgpu::BindGroupEntry {
                     binding: 8,
+                    resource: wgpu::BindingResource::TextureView(&indirect_specular_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 9,
                     resource: wgpu::BindingResource::TextureView(&sky_render_view),
                 },
             ],
@@ -1358,7 +1426,7 @@ impl State {
             self.clear_buffer = true;
         };
         if state_js.config.size[0] != self.render_config.size[0] || state_js.config.size[1] != self.render_config.size[1] {
-            // TODO: Need to update trace texture resolution and trace pipeline to handle size change
+            // TODO: Need to update texture resolution and pipelines to handle size change
             // self.resize(state_js.config.size.into());
             // self.clear_buffer = true;
         };

@@ -1,5 +1,6 @@
 // Global constants
 const PI: f32 = 3.1415926535897932384626433832795;
+const TWO_PI: f32 = 2.0 * PI;
 const EPSILON: f32 = 1e-5;
 
 // Scene object types in place of an enum
@@ -10,7 +11,7 @@ const QUADLIGHT_TYPE: u32 = 3u;
 
 // Nulls
 const NULL_MATERIAL = Material(vec4<f32>(0.0, 0.0, 0.0, 0.0), 0.0, 0.0, 0.0, 0.0, 1.5);
-const NULL_HIT = HitRec(-1.0, vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 0.0), NULL_MATERIAL);
+const NULL_HIT = HitRec(-1.0, vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 0.0), NULL_MATERIAL, true);
 
 // Sizes
 const MAX_BVH_SIZE: u32 = 1024;
@@ -41,11 +42,15 @@ struct Triangle {
     na: vec4<f32>,
     nb: vec4<f32>,
     nc: vec4<f32>,
-    material: Material,
+    material: u32,
 };
 
 struct TriangleBuffer {
     data: array<Triangle>,
+}
+
+struct MaterialBuffer {
+    data: array<Material>,
 }
 
 struct CameraUniform {
@@ -113,6 +118,7 @@ struct HitRec {
     p: vec3<f32>,
     normal: vec3<f32>,
     material: Material,
+    frontface: bool,
 }
 
 struct GGX {
@@ -144,4 +150,14 @@ struct BVHBuffer {
 struct LightSample {
     color: vec4<f32>,
     dir: vec3<f32>,
+}
+
+struct WithSky {
+    color: vec4<f32>,
+    sky: vec4<f32>,
+}
+
+struct CosineDiffuse {
+    dir: vec3<f32>,
+    pdf: f32,
 }
