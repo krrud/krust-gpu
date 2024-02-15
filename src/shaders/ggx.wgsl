@@ -2,7 +2,11 @@ fn ggx_distribution(n_dot_h: f32, roughness: f32) -> f32 {
     // GGX distribution function
     let a2 = roughness * roughness;
     let d = ((n_dot_h * a2 - n_dot_h) * n_dot_h + 1.0); 
-    return a2 / (PI * d * d + EPSILON);
+    var denom = PI * d * d ;
+    if (denom == 0.0) {
+        denom = EPSILON;
+    }
+    return a2 / (denom);
 }
 
 
@@ -13,7 +17,7 @@ fn ggx_sample(n: vec3<f32>, roughness: f32, rng: vec2<f32>) -> vec3<f32> {
 
 	// Sampling
 	let a2: f32 = (roughness * roughness) - 1.0;
-	let cos_theta: f32 = sqrt(max(0.0, (1.0 - rng.x) / ((a2 * rng.x) + 1.0)));
+	let cos_theta: f32 = min(1.0, sqrt(max(0.0, (1.0 - rng.x) / ((a2 * rng.x) + 1.0))));
 	let sin_theta: f32 = sqrt(max(0.0, 1.0 - cos_theta * cos_theta));
 	let phi: f32 = rng.y * PI * 2.0;
 
@@ -28,6 +32,10 @@ fn schlick_masking(n_dot_l: f32, n_dot_v: f32, roughness: f32) -> f32 {
 }
 
 fn schlick_fresnel(f0: vec3<f32>, l_dot_h: f32) -> vec3<f32> {
+    var base = 1.0 - l_dot_h;
+    if base < 0.0 { 
+        base= 0.0; 
+    };
     return f0 + (vec3<f32>(1.0, 1.0, 1.0) - f0) * pow(1.0 - l_dot_h, 5.0);
 }
 

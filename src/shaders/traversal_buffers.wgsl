@@ -3,6 +3,8 @@
 @group(0) @binding(2) var<storage, read> bvhBuffer: BVHBuffer;
 @group(0) @binding(3) var<storage, read> materialBuffer: MaterialBuffer;
 @group(0) @binding(4) var<storage, read> triangleBuffer: TriangleBuffer;
-@group(0) @binding(5) var<storage, read> quadLightBuffer: QuadLightBuffer;
-@group(0) @binding(6) var t_sky: texture_2d<f32>;
-@group(0) @binding(7) var s_sky: sampler;
+@group(0) @binding(5) var<storage, read> vertexBuffer: VertexBuffer;
+@group(0) @binding(6) var<storage, read> normalBuffer: NormalBuffer;
+@group(0) @binding(7) var<storage, read> quadLightBuffer: QuadLightBuffer;
+@group(0) @binding(8) var t_sky: texture_2d<f32>;
+@group(0) @binding(9) var s_sky: sampler;

@@ -1,6 +1,6 @@
 // Indirect diffuse compute shader
-@group(0) @binding(8) var outputTex: texture_storage_2d<rgba8unorm, write>;
-@group(0) @binding(9) var skyTex: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(10) var outputTex: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(11) var skyTex: texture_storage_2d<rgba8unorm, write>;
 
 @compute @workgroup_size(16, 16)
 fn main(@builtin(global_invocation_id) global_ix: vec3<u32>) {
@@ -51,7 +51,7 @@ fn sample_indirect_specular(ray: Ray, maxDepth: u32, spp: u32, pixelSize: vec2<f
                     specularColor *= rec.material.diffuse;
                 }
                 if (primaryHitMetal) {                     
-                    f0 = vec3<f32>(0.8, 0.8, 0.8);
+                    f0 = vec3<f32>(0.6, 0.6,  0.6);
                 } else {                     
                     f0 = vec3<f32>(pow((1.0 - rec.material.ior) / (1.0 + rec.material.ior), 2.0));
                 }

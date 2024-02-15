@@ -1,5 +1,5 @@
 // Indirect diffuse compute shader
-@group(0) @binding(8) var outputTex: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(10) var outputTex: texture_storage_2d<rgba8unorm, write>;
 
 @compute @workgroup_size(16, 16)
 fn main(@builtin(global_invocation_id) global_ix: vec3<u32>) {

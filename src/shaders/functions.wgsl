@@ -20,8 +20,11 @@ fn hit_sphere(sphere: Sphere, ray: Ray) -> HitRec {
 }
 
 fn hit_triangle(triangle: Triangle, ray: Ray) -> HitRec {
-    let e1: vec3<f32> = triangle.b.xyz - triangle.a.xyz;
-    let e2: vec3<f32> = triangle.c.xyz - triangle.a.xyz;
+    let a = vertexBuffer.data[triangle.indices.x].xyz;
+    let b = vertexBuffer.data[triangle.indices.y].xyz;
+    let c = vertexBuffer.data[triangle.indices.z].xyz;
+    let e1: vec3<f32> = b - a;
+    let e2: vec3<f32> = c - a;
     let p: vec3<f32> = cross(ray.direction, e2);
     let det: f32 = dot(e1, p);
 
@@ -30,7 +33,7 @@ fn hit_triangle(triangle: Triangle, ray: Ray) -> HitRec {
     }
 
     let inv_det = 1.0 / det;
-    let s: vec3<f32> = ray.origin - triangle.a.xyz;
+    let s: vec3<f32> = ray.origin - a;
     let u: f32 = dot(s, p) * inv_det;
 
     if (u < 0.0 || u > 1.0) {
@@ -48,7 +51,10 @@ fn hit_triangle(triangle: Triangle, ray: Ray) -> HitRec {
     
     if (t > EPSILON) {
         let p: vec3<f32> = point_at(ray, t);
-        var normal: vec3<f32> = normalize((1.0 - u - v) * triangle.na.xyz + u * triangle.nb.xyz + v * triangle.nc.xyz);
+        let na = normalBuffer.data[triangle.indices.x].xyz;
+        let nb = normalBuffer.data[triangle.indices.y].xyz;
+        let nc = normalBuffer.data[triangle.indices.z].xyz;
+        var normal: vec3<f32> = normalize((1.0 - u - v) * na + u * nb + v * nc);
         let frontface = dot(ray.direction, normal) < 0.0;
         if (!frontface) {
             normal = -normal;
@@ -61,58 +67,34 @@ fn hit_triangle(triangle: Triangle, ray: Ray) -> HitRec {
 }
 
 fn hit_aabb(ray: Ray, box: AABB) -> bool {
-    var tmin: f32 = (box.min.x - ray.origin.x) / ray.direction.x;
-    var tmax: f32 = (box.max.x - ray.origin.x) / ray.direction.x;
+    let t1: vec3<f32> = (box.min.xyz - ray.origin.xyz) / ray.direction.xyz;
+    let t2: vec3<f32> = (box.max.xyz - ray.origin.xyz) / ray.direction.xyz;
 
-    if (ray.direction.x < 0.0) {
-        let temp = tmin;
-        tmin = tmax;
-        tmax = temp;
-    }
+    let tmin: vec3<f32> = min(t1, t2);
+    let tmax: vec3<f32> = max(t1, t2);
 
-    var tymin: f32 = (box.min.y - ray.origin.y) / ray.direction.y;
-    var tymax: f32 = (box.max.y - ray.origin.y) / ray.direction.y;
-
-    if (ray.direction.y < 0.0) {
-        let temp = tymin;
-        tymin = tymax;
-        tymax = temp;
-    }
-
-    if ((tmin > tymax) || (tymin > tmax)){
+    if tmax.x < max(tmin.y, tmin.z) || tmax.y < max(tmin.x, tmin.z) || tmax.z < max(tmin.x, tmin.y) {
         return false;
     }
 
-    if (tymin > tmin){
-        tmin = tymin;  
+    return tmax.x >= 0.0 && tmax.y >= 0.0 && tmax.z >= 0.0;
+}
+
+fn distance_to_aabb(ray: Ray, box: AABB) -> f32 {
+    let t1: vec3<f32> = (box.min.xyz - ray.origin.xyz) / ray.direction.xyz;
+    let t2: vec3<f32> = (box.max.xyz - ray.origin.xyz) / ray.direction.xyz;
+
+    let tmin: vec3<f32> = min(t1, t2);
+    let tmax: vec3<f32> = max(t1, t2);
+
+    let tmin_final: f32 = max(max(tmin.x, tmin.y), tmin.z);
+    let tmax_final: f32 = min(min(tmax.x, tmax.y), tmax.z);
+
+    if (tmax_final < 0.0) {
+        return -1.0;
     }
 
-    if (tymax < tmax){
-        tmax = tymax;    
-    }
-
-    var tzmin: f32 = (box.min.z - ray.origin.z) / ray.direction.z;
-    var tzmax: f32 = (box.max.z - ray.origin.z) / ray.direction.z;
-
-    if (ray.direction.z < 0.0) {
-        let temp = tzmin;
-        tzmin = tzmax;
-        tzmax = temp;
-    }
-
-    if ((tmin > tzmax) || (tzmin > tmax)){
-        return false;
-    }
-
-    if (tzmin > tmin){
-        tmin = tzmin;
-    }
-
-    if (tzmax < tmax) {
-        tmax = tzmax;
-    }
-
-    return tmax >= 0.0;
+    return max(0.0, tmin_final);
 }
 
 fn hit_bvh(ray: Ray) -> HitRec {
@@ -131,18 +113,51 @@ fn hit_bvh(ray: Ray) -> HitRec {
             continue;
         }
 
+        while (node.triangle < 0) {
+            // Branch node
+            let left_node = bvhBuffer.nodes[node.left];
+            let right_node = bvhBuffer.nodes[node.right];
+            let left_t = distance_to_aabb(ray, left_node.aabb);
+            let right_t = distance_to_aabb(ray, right_node.aabb);
+
+            // Both children are behind the ray
+            if (left_t < 0.0 && right_t < 0.0) {
+                break;
+            }
+
+            // Prioritize closest
+            if (left_t >= 0.0 && right_t >= 0.0) {
+                if (left_t < right_t) {
+                    stack_top += 1;
+                    stack[stack_top] = node.right;
+                    stack_top += 1;
+                    stack[stack_top] = node.left;
+                } else {
+                    stack_top += 1;
+                    stack[stack_top] = node.left;
+                    stack_top += 1;
+                    stack[stack_top] = node.right;
+                }
+            } else {
+                // Only add
+                if (left_t >= 0.0) {
+                    stack_top += 1;
+                    stack[stack_top] = node.left;
+                } else {
+                    stack_top += 1;
+                    stack[stack_top] = node.right;
+                }
+            }
+
+            break;
+        }
+
         if (node.triangle >= 0) {
-            // Leaf
+            // Leaf node
             let hit: HitRec = hit_triangle(triangleBuffer.data[node.triangle], ray);
             if (hit.t > 0.0 && (rec.t < 0.0 || hit.t < rec.t)) {
                 rec = hit;
             }
-        } else {
-            // Branch
-            stack_top += 1;
-            stack[stack_top] = node.left;
-            stack_top += 1;
-            stack[stack_top] = node.right;
         }
     }
     return rec;
@@ -165,14 +180,14 @@ fn get_offset_ray(ray: Ray, pixelSize: vec2<f32>, focusDistance: f32, rng: vec2<
 }
 
 fn get_strat_offset_ray(ray: Ray, pixelSize: vec2<f32>, focusDistance: f32, rng: vec2<f32>, count: u32) -> Ray {
-    let gridSize = 3.0;
+    let gridSize = 4.0;
     let wrappedCount = count % u32(gridSize * gridSize);
     let gridPos = vec2<f32>(f32(wrappedCount % u32(gridSize)), f32(wrappedCount / u32(gridSize)));
     let stratifiedRng = (gridPos + rng) / gridSize;
 
     var aaOffset = vec3<f32>((stratifiedRng.x - 0.5) * pixelSize.x, (stratifiedRng.y - 0.5) * pixelSize.y, 0.0);
     var aaDirection = normalize(ray.direction + aaOffset);
-    let dof = random_in_unit_disk(rng) * scene.camera.aperture;
+    var dof = random_in_unit_disk(rng) * scene.camera.aperture;
     let origin = ray.origin + dof;
     let direction = normalize((aaDirection * focusDistance - dof));
 
@@ -275,8 +290,8 @@ fn sample_quad_light(light: QuadLight, rec: HitRec, rng: vec2<f32>) -> LightSamp
     if (lightRec.t > 0.0 && lightRec.t < lightDist){
         return LightSample(vec4<f32>(0.0, 0.0, 0.0, 0.0), toLight);
     }
-    let lightPdf = lightDist * lightDist / (lightSize);
-    let lightWeight = max(dot(rec.normal.xyz, toLight), 0.0);
+    let lightPdf = lightDist * lightDist / (lightSize * abs(lightCos));
+    let lightWeight = max(dot(rec.normal.xyz, toLight), 0.0) / lightPdf;
     let lightColor = vec4<f32>(light.color * light.intensity / (lightDist * lightDist), 0.0);
     return LightSample(lightColor * lightWeight, toLight);
 }
@@ -285,4 +300,11 @@ fn sample_sky(ray: Ray, intensity: f32) -> vec4<f32> {
     let uv = vec2<f32>(atan2(ray.direction.z, ray.direction.x) / (PI * 2.0) + 0.5, -asin(ray.direction.y) / PI + 0.5);
     let color = textureSampleLevel(t_sky, s_sky, uv, 0.0);
     return color * intensity;
+}
+
+fn is_nan(v: vec4<f32>) -> bool {
+    if (v.x != v.x || v.y != v.y || v.z != v.z || v.w != v.w) {
+        return true;
+    }
+    return false;
 }

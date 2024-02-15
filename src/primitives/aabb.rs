@@ -1,3 +1,5 @@
+use crate::primitives::triangle::{Triangle, TriangleCPU};
+
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -69,4 +71,33 @@ impl AABB {
             None
         }
     }
+
+    pub fn bounding_box_for_slice(primitives: &[TriangleCPU], start: usize, end: usize) -> Self {
+        if start >= end {
+            return AABB::empty();
+        }
+    
+        let mut bbox = primitives[start].bounding_box(0.0, 0.0);
+    
+        for i in start + 1..end {
+            bbox = bbox.union(&primitives[i].bounding_box(0.0, 0.0));
+        }
+    
+        bbox
+    }
+
+    pub fn extend(&mut self, other: &AABB) {
+        for i in 0..3 {
+            self.min[i] = self.min[i].min(other.min[i]);
+            self.max[i] = self.max[i].max(other.max[i]);
+        }
+    }
+
+    pub fn contract(&mut self, other: &AABB) {
+        for i in 0..3 {
+            self.min[i] = self.min[i].max(other.min[i]);
+            self.max[i] = self.max[i].min(other.max[i]);
+        }
+    }
+    
 }

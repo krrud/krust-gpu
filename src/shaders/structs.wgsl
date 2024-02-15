@@ -36,12 +36,7 @@ struct QuadLightBuffer {
 };
 
 struct Triangle {
-    a: vec4<f32>,
-    b: vec4<f32>,
-    c: vec4<f32>,
-    na: vec4<f32>,
-    nb: vec4<f32>,
-    nc: vec4<f32>,
+    indices: vec3<u32>,
     material: u32,
 };
 
@@ -128,6 +123,14 @@ struct GGX {
 
 struct PixelBuffer {
     data: array<vec4<f32>>
+}
+
+struct VertexBuffer {
+    data: array<vec4<f32>>
+}
+
+struct NormalBuffer {
+    data: array<vec3<f32>>
 }
 
 struct AABB {
