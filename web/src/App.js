@@ -17,8 +17,14 @@ function App() {
       sky_intensity: 1.0,
     },
     camera: {
-      aperture: 1.0,
+      aperture: 0.0,
       fov: 50.0,
+    },
+    sss : {
+      scatter_coeff: [1.0, 1.0, 1.0],
+      absorption_coeff: [1.0, 1.0, 1.0],
+      scale: 1.0,
+      anisotropy: 0.5,
     },
     focus: true,
   });  
@@ -115,6 +121,30 @@ function App() {
     });
   }
 
+  function changeSSSscale(input) {
+    const value = parseFloat(input.toFixed(4));
+    setState({
+      ...state,
+      sss: {
+        ...state.sss,
+        scale: value,
+      },
+      focus: !state.focus,
+    });
+  }
+
+  function changeAnisotropy(input) {
+    const value = parseFloat(input.toFixed(4));
+    setState({
+      ...state,
+      sss: {
+        ...state.sss,
+        anisotropy: value,
+      },
+      focus: !state.focus,
+    });
+  }
+
   function AccordionControl(props) {
     return (
       <Center>
@@ -154,7 +184,7 @@ function App() {
               <Text size="sm" mb="sm" mt={12} fw={400}>Aperture</Text>
               <SliderInput
                 onChange={(val)=>changeAperture(val)}
-                defaultValue={0.1}
+                defaultValue={0.0}
                 step={0.01}
                 min={0}
                 max={1}
@@ -187,6 +217,7 @@ function App() {
               />
             </Accordion.Panel>
           </Accordion.Item>
+
         </Accordion>
         </AppShell.Navbar>
         <AppShell.Main

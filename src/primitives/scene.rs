@@ -10,7 +10,6 @@ use rand::random;
 pub struct Scene {
     pub config: RenderConfig,
     pub camera: CameraUniform,
-    // pub objects: Vec<SceneObject>,
 }
 
 impl Scene {
@@ -18,16 +17,13 @@ impl Scene {
         Scene {
             config: RenderConfig::default(),
             camera: CameraUniform::new(),
-            // objects: Vec::new(),
         }
     }
 
-    pub fn from(mut config: RenderConfig, camera: CameraUniform, objects: Vec<SceneObject>) -> Self {
-        config.num_objects = objects.len() as u32;
+    pub fn from(mut config: RenderConfig, camera: CameraUniform) -> Self {
         Scene {
             config,
             camera,
-            // objects,
         }
     }
 

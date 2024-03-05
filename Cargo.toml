@@ -20,6 +20,8 @@ winit = "0.28"
 rand = "0.8.5"
 js-sys = "0.3"
 serde = { version = "1.0", features = ["derive"] }
+gltf = {version = "1.4.0", features = ["KHR_materials_ior", "KHR_materials_transmission", "KHR_materials_specular", "extensions"]}
+rayon = "1.8.1"
 
 [dependencies.image]
 version = "0.24"

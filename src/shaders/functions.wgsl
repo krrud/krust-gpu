@@ -20,9 +20,9 @@ fn hit_sphere(sphere: Sphere, ray: Ray) -> HitRec {
 }
 
 fn hit_triangle(triangle: Triangle, ray: Ray) -> HitRec {
-    let a = vertexBuffer.data[triangle.indices.x].xyz;
-    let b = vertexBuffer.data[triangle.indices.y].xyz;
-    let c = vertexBuffer.data[triangle.indices.z].xyz;
+    let a = vertex_buffer.data[triangle.indices.x].xyz;
+    let b = vertex_buffer.data[triangle.indices.y].xyz;
+    let c = vertex_buffer.data[triangle.indices.z].xyz;
     let e1: vec3<f32> = b - a;
     let e2: vec3<f32> = c - a;
     let p: vec3<f32> = cross(ray.direction, e2);
@@ -51,15 +51,15 @@ fn hit_triangle(triangle: Triangle, ray: Ray) -> HitRec {
     
     if (t > EPSILON) {
         let p: vec3<f32> = point_at(ray, t);
-        let na = normalBuffer.data[triangle.indices.x].xyz;
-        let nb = normalBuffer.data[triangle.indices.y].xyz;
-        let nc = normalBuffer.data[triangle.indices.z].xyz;
+        let na = normal_buffer.data[triangle.indices.x].xyz;
+        let nb = normal_buffer.data[triangle.indices.y].xyz;
+        let nc = normal_buffer.data[triangle.indices.z].xyz;
         var normal: vec3<f32> = normalize((1.0 - u - v) * na + u * nb + v * nc);
         let frontface = dot(ray.direction, normal) < 0.0;
         if (!frontface) {
             normal = -normal;
         }
-        return HitRec(t, p, normal, materialBuffer.data[triangle.material], frontface);
+        return HitRec(t, p, normal, material_buffer.data[triangle.material], frontface);
     }
     else {
         return NULL_HIT;
@@ -67,47 +67,48 @@ fn hit_triangle(triangle: Triangle, ray: Ray) -> HitRec {
 }
 
 fn hit_aabb(ray: Ray, box: AABB) -> bool {
-    let t1: vec3<f32> = (box.min.xyz - ray.origin.xyz) / ray.direction.xyz;
-    let t2: vec3<f32> = (box.max.xyz - ray.origin.xyz) / ray.direction.xyz;
+    let inv_direction = vec3<f32>(1.0) / ray.direction;
+    let t1 = (box.min.xyz - ray.origin) * inv_direction;
+    let t2 = (box.max.xyz - ray.origin) * inv_direction;
 
-    let tmin: vec3<f32> = min(t1, t2);
-    let tmax: vec3<f32> = max(t1, t2);
+    let tmin = min(t1, t2);
+    let tmax = max(t1, t2);
 
-    if tmax.x < max(tmin.y, tmin.z) || tmax.y < max(tmin.x, tmin.z) || tmax.z < max(tmin.x, tmin.y) {
-        return false;
-    }
+    let tmin_max = max(max(tmin.x, tmin.y), tmin.z);
+    let tmax_min = min(min(tmax.x, tmax.y), tmax.z);
 
-    return tmax.x >= 0.0 && tmax.y >= 0.0 && tmax.z >= 0.0;
+    return tmax_min >= tmin_max && tmax_min >= 0.0;
 }
 
 fn distance_to_aabb(ray: Ray, box: AABB) -> f32 {
-    let t1: vec3<f32> = (box.min.xyz - ray.origin.xyz) / ray.direction.xyz;
-    let t2: vec3<f32> = (box.max.xyz - ray.origin.xyz) / ray.direction.xyz;
+    let inv_direction = vec3<f32>(1.0) / ray.direction;
+    let t1 = (box.min.xyz - ray.origin) * inv_direction;
+    let t2 = (box.max.xyz - ray.origin) * inv_direction;
 
-    let tmin: vec3<f32> = min(t1, t2);
-    let tmax: vec3<f32> = max(t1, t2);
+    let tmin = min(t1, t2);
+    let tmax = max(t1, t2);
 
-    let tmin_final: f32 = max(max(tmin.x, tmin.y), tmin.z);
-    let tmax_final: f32 = min(min(tmax.x, tmax.y), tmax.z);
+    let tmin_max = max(max(tmin.x, tmin.y), tmin.z);
+    let tmax_min = min(min(tmax.x, tmax.y), tmax.z);
 
-    if (tmax_final < 0.0) {
+    if (tmax_min < 0.0) {
         return -1.0;
+    } else {
+        return max(0.0, tmin_max);
     }
-
-    return max(0.0, tmin_final);
 }
 
 fn hit_bvh(ray: Ray) -> HitRec {
     var rec: HitRec = NULL_HIT;
     var stack: array<i32, 128>;
     var stack_top: i32 = 0;
-    stack[stack_top] = bvhBuffer.root;
+    stack[stack_top] = bvh_buffer.root;
 
     while (stack_top >= 0) {
         let node_index: i32 = stack[stack_top];
         stack_top -= 1;
 
-        let node = bvhBuffer.nodes[node_index];
+        let node = bvh_buffer.nodes[node_index];
 
         if (!hit_aabb(ray, node.aabb)) {
             continue;
@@ -115,8 +116,8 @@ fn hit_bvh(ray: Ray) -> HitRec {
 
         while (node.triangle < 0) {
             // Branch node
-            let left_node = bvhBuffer.nodes[node.left];
-            let right_node = bvhBuffer.nodes[node.right];
+            let left_node = bvh_buffer.nodes[node.left];
+            let right_node = bvh_buffer.nodes[node.right];
             let left_t = distance_to_aabb(ray, left_node.aabb);
             let right_t = distance_to_aabb(ray, right_node.aabb);
 
@@ -154,7 +155,7 @@ fn hit_bvh(ray: Ray) -> HitRec {
 
         if (node.triangle >= 0) {
             // Leaf node
-            let hit: HitRec = hit_triangle(triangleBuffer.data[node.triangle], ray);
+            let hit: HitRec = hit_triangle(triangle_buffer.data[node.triangle], ray);
             if (hit.t > 0.0 && (rec.t < 0.0 || hit.t < rec.t)) {
                 rec = hit;
             }
@@ -169,27 +170,27 @@ fn point_at(ray: Ray, t: f32) -> vec3<f32> {
     return ray.origin + ray.direction * t;
 }
 
-fn get_offset_ray(ray: Ray, pixelSize: vec2<f32>, focusDistance: f32, rng: vec2<f32>) -> Ray {
-    var aaOffset = vec3<f32>((rng.x - 0.5) * pixelSize.x, (rng.y - 0.5) * pixelSize.y, 0.0);
+fn get_offset_ray(ray: Ray, pixel_size: vec2<f32>, focus_distance: f32, rng: vec2<f32>) -> Ray {
+    var aaOffset = vec3<f32>((rng.x - 0.5) * pixel_size.x, (rng.y - 0.5) * pixel_size.y, 0.0);
     var aaDirection = normalize(ray.direction + aaOffset);
     let dof = random_in_unit_disk(rng) * scene.camera.aperture;
     let origin = ray.origin + dof;
-    let direction = normalize((aaDirection * focusDistance - dof));
+    let direction = normalize((aaDirection * focus_distance - dof));
 
     return Ray(origin, direction);
 }
 
-fn get_strat_offset_ray(ray: Ray, pixelSize: vec2<f32>, focusDistance: f32, rng: vec2<f32>, count: u32) -> Ray {
-    let gridSize = 4.0;
-    let wrappedCount = count % u32(gridSize * gridSize);
-    let gridPos = vec2<f32>(f32(wrappedCount % u32(gridSize)), f32(wrappedCount / u32(gridSize)));
-    let stratifiedRng = (gridPos + rng) / gridSize;
+fn get_strat_offset_ray(ray: Ray, pixel_size: vec2<f32>, focus_distance: f32, rng: vec2<f32>, count: u32) -> Ray {
+    let grid_size = 4.0;
+    let wrapped_count = count % u32(grid_size * grid_size);
+    let grid_pos = vec2<f32>(f32(wrapped_count % u32(grid_size)), f32(wrapped_count / u32(grid_size)));
+    let strat_rng = (grid_pos + rng) / grid_size;
 
-    var aaOffset = vec3<f32>((stratifiedRng.x - 0.5) * pixelSize.x, (stratifiedRng.y - 0.5) * pixelSize.y, 0.0);
-    var aaDirection = normalize(ray.direction + aaOffset);
+    var aa_offset = vec3<f32>((strat_rng.x - 0.5) * pixel_size.x, (strat_rng.y - 0.5) * pixel_size.y, 0.0);
+    var aa_direction = normalize(ray.direction + aa_offset);
     var dof = random_in_unit_disk(rng) * scene.camera.aperture;
     let origin = ray.origin + dof;
-    let direction = normalize((aaDirection * focusDistance - dof));
+    let direction = normalize((aa_direction * focus_distance - dof));
 
     return Ray(origin, direction);
 }
@@ -215,7 +216,7 @@ fn random_unit_vector(rng: vec2<f32>) -> vec3<f32> {
     let r1: f32 = hash_f32(rng.x);
     let r2: f32 = hash_f32(rng.y);
 
-    let theta: f32 = 2.0 * 3.14159265359 * r1; 
+    let theta: f32 = 2.0 * PI * r1; 
     let phi: f32 = acos(1.0 - 2.0 * r2); 
 
     let x: f32 = sin(phi) * cos(theta);
@@ -262,42 +263,43 @@ fn schlick(cosine: f32, ior: f32) -> f32 {
 
 fn cosine_weighted_hemisphere(rec: HitRec, rng: vec2<f32>) -> CosineDiffuse {
     let phi = TWO_PI * rng.x;
-    let cosTheta = sqrt(1.0 - rng.y);
-    let sinTheta = sqrt(rng.y);
+    let cos_theta = sqrt(1.0 - rng.y);
+    let sin_theta = sqrt(rng.y);
 
-    let localDir = vec3<f32>(cos(phi) * sinTheta, cosTheta, sin(phi) * sinTheta);
+    let local_dir = vec3<f32>(cos(phi) * sin_theta, cos_theta, sin(phi) * sin_theta);
 
-    let worldUp = vec3<f32>(0.0, 1.0, 0.0);
-    let worldNormal = normalize(rec.normal.xyz);
-    let worldTangent = normalize(cross(worldUp, worldNormal));
-    let worldBitangent = normalize(cross(worldNormal, worldTangent));
+    let w_up = vec3<f32>(0.0, 1.0, 0.0);
+    let w_normal = normalize(rec.normal.xyz);
+    let w_tangent = normalize(cross(w_up, w_normal));
+    let w_bitangent = normalize(cross(w_normal, w_tangent));
 
-    let direction = normalize(worldTangent * localDir.x + worldNormal * localDir.y + worldBitangent * localDir.z);
+    let direction = normalize(w_tangent * local_dir.x + w_normal * local_dir.y + w_bitangent * local_dir.z);
     let pdf = abs(dot(direction, rec.normal)) / PI;
 
     return CosineDiffuse(direction, pdf);
 }
 
-fn sample_quad_light(light: QuadLight, rec: HitRec, rng: vec2<f32>) -> LightSample {
-    let lightSample = random_on_quad(light.position.xyz, light.normal.xyz, light.u.xyz, light.v.xyz, rng);
-    let lightDist = length(lightSample - rec.p);
-    let lightSize = length(cross(light.u.xyz, light.v.xyz)); 
-    let toLight = normalize(lightSample - rec.p);
-    let lightCos = dot(rec.normal.xyz, toLight);
-    let lightRay = Ray(rec.p, toLight);
-    let lightRec = hit_bvh(lightRay);
-    var lightShadow = 0.0;
-    if (lightRec.t > 0.0 && lightRec.t < lightDist){
-        return LightSample(vec4<f32>(0.0, 0.0, 0.0, 0.0), toLight);
+fn sample_quad_light(rec: HitRec, rng: vec2<f32>) -> LightSample {
+    let light = quad_light_buffer.data[0];
+    let sample = random_on_quad(light.position.xyz, light.normal.xyz, light.u.xyz, light.v.xyz, rng);
+    let dist = length(sample - rec.p);
+    let dist2 = dist * dist;
+    let size = length(cross(light.u.xyz, light.v.xyz)); 
+    let to_light = normalize(sample - rec.p);
+    let cos = dot(rec.normal.xyz, to_light);
+    let ray = Ray(rec.p, to_light);
+    let light_rec = hit_bvh(ray);
+    if (light_rec.t > 0.0 && light_rec.t < dist){
+        return LightSample(vec4<f32>(0.0, 0.0, 0.0, 0.0), to_light);
     }
-    let lightPdf = lightDist * lightDist / (lightSize * abs(lightCos));
-    let lightWeight = max(dot(rec.normal.xyz, toLight), 0.0) / lightPdf;
-    let lightColor = vec4<f32>(light.color * light.intensity / (lightDist * lightDist), 0.0);
-    return LightSample(lightColor * lightWeight, toLight);
+    let pdf = dist2 / (size * abs(cos));
+    let weight = max(dot(rec.normal.xyz, to_light), 0.0) / pdf;
+    let color = vec4<f32>(light.color * light.intensity / dist2, 0.0);
+    return LightSample(color * weight, to_light);
 }
 
-fn sample_sky(ray: Ray, intensity: f32) -> vec4<f32> {
-    let uv = vec2<f32>(atan2(ray.direction.z, ray.direction.x) / (PI * 2.0) + 0.5, -asin(ray.direction.y) / PI + 0.5);
+fn sample_sky(direction: vec3<f32>, intensity: f32) -> vec4<f32> {
+    let uv = vec2<f32>(atan2(direction.z, direction.x) / (PI * 2.0) + 0.5, -asin(direction.y) / PI + 0.5);
     let color = textureSampleLevel(t_sky, s_sky, uv, 0.0);
     return color * intensity;
 }

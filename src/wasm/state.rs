@@ -14,9 +14,18 @@ pub struct Camera {
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone, Debug)]
+pub struct SSSData {
+    pub scatter_coeff: [f32; 3],
+    pub absorption_coeff: [f32; 3],
+    pub scale: f32,
+    pub anisotropy: f32,
+}
+
+#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
 pub struct StateJS {
     pub config: Config,
     pub camera: Camera,
+    pub sss: SSSData,
 }
 
 impl StateJS {
@@ -29,6 +38,12 @@ impl StateJS {
             camera: Camera {
                 aperture: 0.0,
                 fov: 50.0,
+            },
+            sss: SSSData {
+                scatter_coeff: [2.1, 1.9, 0.2],
+                absorption_coeff: [0.04, 0.07, 0.2],
+                scale: 1.0,
+                anisotropy: 0.5,
             },
         }
     }

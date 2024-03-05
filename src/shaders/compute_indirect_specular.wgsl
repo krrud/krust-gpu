@@ -1,85 +1,84 @@
 // Indirect diffuse compute shader
-@group(0) @binding(10) var outputTex: texture_storage_2d<rgba8unorm, write>;
-@group(0) @binding(11) var skyTex: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(10) var output_tex: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(11) var sky_tex: texture_storage_2d<rgba8unorm, write>;
 
 @compute @workgroup_size(16, 16)
 fn main(@builtin(global_invocation_id) global_ix: vec3<u32>) {
-    let ix = global_ix.xy;
-    let rayIdx = ix.y * scene.config.size.x + ix.x;
-    let ray = rays.data[rayIdx];
+    let idx = global_ix.xy;
+    let ray_idx = idx.y * scene.config.size.x + idx.x;
+    let ray = rays.data[ray_idx];
     let sample = sample_indirect_specular(
         ray, 
         scene.config.max_depth, 
         scene.config.samples,
         scene.config.pixel_size, 
-        rayIdx
+        ray_idx
         );
-    let testMtl = materialBuffer.data[0];
 
     // TODO: investigate coord system mismatch
-    let flippedIdx = vec2<i32>(i32(scene.config.size.x) - i32(ix.x) - 1, i32(ix.y));
-    textureStore(outputTex, flippedIdx, sample.color);
-    textureStore(skyTex, flippedIdx, sample.sky);
+    let flipped_idx = vec2<i32>(i32(scene.config.size.x) - i32(idx.x) - 1, i32(idx.y));
+    textureStore(output_tex, flipped_idx, sample.color);
+    textureStore(sky_tex, flipped_idx, sample.sky);
 }
 
-fn sample_indirect_specular(ray: Ray, maxDepth: u32, spp: u32, pixelSize: vec2<f32>, globalIdx: u32) -> WithSky {
-    var outColor = vec4<f32>(0.0, 0.0, 0.0, 1.0);
-    var skyColor = vec4<f32>(0.0, 0.0, 0.0, 1.0);
-    let focusDistance: f32 = length(ray.origin);
-    let invSpp = 1.0 / f32(spp);
+fn sample_indirect_specular(ray: Ray, max_depth: u32, spp: u32, pixel_size: vec2<f32>, global_idx: u32) -> WithSky {
+    var pixel_color = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    var sky_color = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    let focus_distance: f32 = length(ray.origin);
+    let inv_spp = 1.0 / f32(spp);
 
-    for (var sampleIdx = 0u; sampleIdx < spp; sampleIdx = sampleIdx + 1u) {
-        let seed: u32 = sampleIdx * globalIdx + sampleIdx + 999u * globalIdx;
+    for (var sample_idx = 0u; sample_idx < spp; sample_idx = sample_idx + 1u) {
+        let seed: u32 = sample_idx * global_idx + sample_idx + 999u * global_idx;
         let rng = vec2<f32>(hash_u32(seed * scene.config.seed.x), hash_u32(seed * scene.config.seed.y));
 
         var color = vec4<f32>(1.0, 1.0, 1.0, 1.0);
-        var ray: Ray = get_strat_offset_ray(ray, pixelSize, focusDistance, rng, scene.config.count);
-        var primaryHitMetal = false;
+        var ray: Ray = get_strat_offset_ray(ray, pixel_size, focus_distance, rng, scene.config.count);
+        var primary_hit_metal = false;
 
-        for (var depth = maxDepth; depth > 0u; depth = depth - 1u) {
+        for (var depth = max_depth; depth > 0u; depth = depth - 1u) {
             let rec = hit_bvh(ray);
             if (rec.t > 0.0) {
-                var specularColor = vec4<f32>(1.0, 1.0, 1.0, 1.0) * rec.material.specular;
+                var specular_color = vec4<f32>(1.0, 1.0, 1.0, 1.0) * rec.material.specular;
                 var f0: vec3<f32>;
-                if (depth == maxDepth) {
-                    let isMetallic = rec.material.metallic > rng.x;
-                    primaryHitMetal = isMetallic;
-                    if (isMetallic) {
-                       specularColor *= rec.material.diffuse; 
+                if (depth == max_depth) {
+                    let is_metal = rec.material.metallic > rng.x;
+                    primary_hit_metal = is_metal;
+                    if (is_metal) {
+                       specular_color *= rec.material.diffuse; 
                     }                    
                 } else {
-                    specularColor *= rec.material.diffuse;
+                    specular_color *= rec.material.diffuse;
                 }
-                if (primaryHitMetal) {                     
+                if (primary_hit_metal) {                     
                     f0 = vec3<f32>(0.6, 0.6,  0.6);
                 } else {                     
                     f0 = vec3<f32>(pow((1.0 - rec.material.ior) / (1.0 + rec.material.ior), 2.0));
                 }
-                let ggxIndirect = ggx_indirect(
+                let ggx = ggx_indirect(
                     rec.normal, 
                     -ray.direction, 
                     rec.material.roughness, 
                     f0,
                     rng
                 );    
-                color *= specularColor * ggxIndirect.weight;
+                color *= specular_color * ggx.weight;
                 if (scene.config.sky_intensity < EPSILON || !rec.frontface) { // TODO: hacky wacky
                     color*= 0.0;
                 }
-                ray = Ray(rec.p, reflect(ray.direction, ggxIndirect.direction));             
+                ray = Ray(rec.p, reflect(ray.direction, ggx.direction));             
             } else {
-                let skySample = sample_sky(ray, scene.config.sky_intensity);
-                if (depth == maxDepth) {
-                    skyColor += skySample;
+                let sky_sample = sample_sky(ray.direction, scene.config.sky_intensity);
+                if (depth == max_depth) {
+                    sky_color += sky_sample;
                     color *= 0.0;
                 } else {
-                    color *= skySample;     
+                    color *= sky_sample;     
                 }
                 break;
             }       
         }
-        outColor += color * invSpp;
+        pixel_color += color * inv_spp;
     }
-    return WithSky(outColor, skyColor);
+    return WithSky(pixel_color, sky_color);
 }
 

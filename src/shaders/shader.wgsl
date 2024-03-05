@@ -38,7 +38,8 @@ fn vs_main(
 @group(0) @binding(4) var indirect_diffuse: texture_2d<f32>;
 @group(0) @binding(5) var direct_specular: texture_2d<f32>;
 @group(0) @binding(6) var indirect_specular: texture_2d<f32>;
-@group(0) @binding(7) var sky: texture_2d<f32>;
+@group(0) @binding(7) var sss: texture_2d<f32>;
+@group(0) @binding(8) var sky: texture_2d<f32>;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -48,10 +49,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let indirect_diffuse_color: vec4<f32> = textureSample(indirect_diffuse, texture_sampler, in.tex_coords);
     let direct_specular_color: vec4<f32> = textureSample(direct_specular, texture_sampler, in.tex_coords);
     let indirect_specular_color: vec4<f32> = textureSample(indirect_specular, texture_sampler, in.tex_coords);
+    let sss_color: vec4<f32> = textureSample(sss, texture_sampler, in.tex_coords);
     let sky_color: vec4<f32> = textureSample(sky, texture_sampler, in.tex_coords);
 
     // Composite
-    let composite = direct_diffuse_color + indirect_diffuse_color + direct_specular_color + indirect_specular_color + sky_color;
+    let composite = ((direct_diffuse_color + indirect_diffuse_color)) + direct_specular_color + indirect_specular_color + sky_color; // + sss_color
     let accumulated_color: vec4<f32> = composite + accumulation_buffer.data[index];
     accumulation_buffer.data[index] = accumulated_color;
 

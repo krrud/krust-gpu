@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use wgpu::util::DeviceExt;
 use rayon::prelude::*;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use crate::primitives::aabb::AABB;
 use crate::primitives::triangle::TriangleCPU;
@@ -277,4 +277,5 @@ fn sah_split(
 
     best_index
 }
+
 

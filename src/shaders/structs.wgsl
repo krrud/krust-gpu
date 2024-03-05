@@ -74,7 +74,7 @@ struct SphereBuffer {
 struct Scene {
     config: RenderConfig,
     camera: CameraUniform,
-    // objects: array<SceneObject>,
+    // sss: SSSData,
 }
 
 struct RenderConfig {
@@ -163,4 +163,11 @@ struct WithSky {
 struct CosineDiffuse {
     dir: vec3<f32>,
     pdf: f32,
+}
+
+struct SSSData {
+    scatter_coeff: vec4<f32>,
+    absorption_coeff: vec4<f32>,
+    scale: f32,
+    anisotropy: f32,
 }
