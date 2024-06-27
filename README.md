@@ -12,27 +12,26 @@
 - [Acknowledgements](#acknowledgements)
 - [License](#license)
 
-
 ## Overview <a name="overview"></a>
-This project showcases a GPU based raytracter written in Rust for the browser. My goal was to create a simple, streamlined, and responsive renderer. Krust uses a highly optimized BVH to make traversing large models a breeze, and leverages MIS to bolster convergance. I decided to use .glb files to make GPU data transfers easy, and to promote accessability via a widely adopted file format. 
+This project showcases a GPU-based raytracer written in Rust for the browser. My goal was to create a simple, streamlined, and responsive renderer. Krust uses a highly optimized BVH to make traversing large models a breeze, and leverages MIS to enhance convergence. I opted for .glb files to simplify GPU data transfers and to ensure accessibility through a widely adopted file format.
 
 
 **Tech Stack**:
-- Rust
-- Wasm-bindgen
-- React
-- Wgpu
+- **Rust**: Core programming language.
+- **Wasm-bindgen**: Facilitates communication between WebAssembly and JavaScript.
+- **React**: Used for building the frontend user interface.
+- **Wgpu**: WebGPU implementation in Rust, enabling high-performance graphics and computation.
 
 
-**Future improvements currently in development**:
-- Subdivision (catclark and adaptive)
-- Subsurface scattering (diffusion and randomwalk)
+**Future Improvements Currently in Development**:
+- Subdivision (Catmull-Clark and adaptive)
+- Subsurface scattering (diffusion and random walk)
 - Volumes
 - Radiance caching
 
 
 ## Usage <a name="usage"></a>
-Feel free to try out a sample scene on the [website](https://krust-gpu.web.app/). Be sure to enable WebGPU in your browser!
+Try out a sample scene on the [website](https://krust-gpu.web.app/). Be sure to [enable WebGPU](https://example.com/enable-webgpu) in your browser.
 
 To build and run the project locally, follow these steps:
 
