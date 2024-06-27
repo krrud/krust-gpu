@@ -16,13 +16,15 @@
 ## Overview <a name="overview"></a>
 This project showcases a GPU based raytracter written in Rust for the browser. My goal was to create a simple, streamlined, and responsive renderer. Krust uses a highly optimized BVH to make traversing large models a breeze, and leverages MIS to bolster convergance. I decided to use .glb files to make GPU data transfers easy, and to promote accessability via a widely adopted file format. 
 
-Tech Stack:
+
+**Tech Stack**:
 - Rust
 - Wasm-bindgen
 - React
 - Wgpu
 
-Future improvements currently in development:
+
+**Future improvements currently in development**:
 - Subdivision (catclark and adaptive)
 - Subsurface scattering (diffusion and randomwalk)
 - Volumes
