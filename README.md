@@ -1,11 +1,7 @@
 # Krust Renderer
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.md)
 ## Example Video
-<video width="640" height="360" controls=false autoplay mute>
-  <source src="assets/gpu-renderer.webm" type="video/webm">
-  <source src="assets/gpu-renderer.mp4" type="video/mp4">
-  Your browser does not support the video tag.
-</video>
+[gpu-renderer.webm](https://github.com/krrud/krust-gpu/assets/1253057/310a4f2c-9713-45c6-8f82-64c0275d366f)
 
 
 ## Table of Contents
