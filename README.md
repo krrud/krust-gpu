@@ -1,8 +1,9 @@
 # Krust Renderer
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.md)
 ## Example Video
-<video width="320" height="240" controls>
+<video width="640" height="360" controls=false autoplay mute>
   <source src="assets/gpu-renderer.webm" type="video/webm">
+  <source src="assets/gpu-renderer.mp4" type="video/mp4">
   Your browser does not support the video tag.
 </video>
 
@@ -25,7 +26,7 @@ Future improvements currently in development:
 
 
 ## Usage <a name="usage"></a>
-Feel free to try out a sample scene on the [website](https://krust-gpu.web.app/).
+Feel free to try out a sample scene on the [website](https://krust-gpu.web.app/). Be sure to enable WebGPU in your browser!
 Krust accepts .glb files which can be easily created with most 3D packages.
 
 
